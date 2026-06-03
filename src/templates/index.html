@@ -231,8 +231,10 @@
     async function showScheduler() {
         const res = await fetch('/api/scheduler/status');
         const data = await res.json();
-        const info = data.jobs.map(j => `${j.name}: 下次 ${j.next_run}`).join(' | ');
-        document.getElementById('schedulerInfo').textContent = info || '無排程';
+        const info = data.jobs.map(j => `${j.name}\n下次執行: ${j.next_run}`).join('\n\n');
+        alert(`排程狀態: ${data.running ? '運行中' : '已停止'}\n\n${info || '無排程'}`);
+        document.getElementById('schedulerInfo').textContent =
+            data.jobs.map(j => `下次: ${j.next_run}`).join(' | ');
     }
 
     // Event listeners
