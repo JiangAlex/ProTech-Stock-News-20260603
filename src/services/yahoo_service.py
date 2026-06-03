@@ -11,11 +11,13 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://tw.stock.yahoo.com"
 
 
-def fetch_hot_stocks():
-    """Fetch community hot stocks ranking from Yahoo Stock."""
+def fetch_hot_stocks(rank_type="active"):
+    """Fetch community hot stocks ranking from Yahoo Stock.
+    rank_type: 'active' (最多人瀏覽) or 'trending' (瀏覽量激增)
+    """
     import requests
     resp = requests.get(
-        f"{BASE_URL}/community/rank/active",
+        f"{BASE_URL}/community/rank/{rank_type}",
         headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"},
         timeout=10,
     )

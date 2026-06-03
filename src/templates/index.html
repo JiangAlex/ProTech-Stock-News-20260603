@@ -83,7 +83,13 @@
 
         <!-- Hot Stocks -->
         <div class="panel">
-            <div class="panel-header"><h2>🔥 社群爆紅榜</h2></div>
+            <div class="panel-header">
+                <h2>🔥 社群爆紅榜</h2>
+                <div>
+                    <button class="btn btn-primary" onclick="loadHotStocks('active')" style="font-size:11px;padding:4px 8px;">最多瀏覽</button>
+                    <button class="btn btn-secondary" onclick="loadHotStocks('trending')" style="font-size:11px;padding:4px 8px;">瀏覽激增</button>
+                </div>
+            </div>
             <div class="panel-body" id="hotStocks"><div class="loading">載入中...</div></div>
         </div>
 
@@ -114,8 +120,8 @@
     }
 
     // Load hot stocks ranking
-    async function loadHotStocks() {
-        const res = await fetch('/api/hot-stocks');
+    async function loadHotStocks(type = 'active') {
+        const res = await fetch(`/api/hot-stocks?type=${type}`);
         const stocks = await res.json();
         const container = document.getElementById('hotStocks');
         if (!stocks || stocks.length === 0) {

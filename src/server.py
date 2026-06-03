@@ -73,9 +73,9 @@ def api_stock_list():
 
 
 @app.get("/api/hot-stocks")
-def api_hot_stocks():
-    """Get Yahoo community hot stocks ranking."""
-    return fetch_hot_stocks()
+def api_hot_stocks(type: str = Query("active")):
+    """Get Yahoo community hot stocks. type: active, trending."""
+    return fetch_hot_stocks(type)
 
 
 @app.post("/api/scrape")
