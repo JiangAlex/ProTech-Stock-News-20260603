@@ -81,8 +81,14 @@
             <div class="panel-body" id="latestNews"><div class="loading">載入中...</div></div>
         </div>
 
-        <!-- Search Results -->
+        <!-- Hot Stocks -->
         <div class="panel">
+            <div class="panel-header"><h2>🔥 社群爆紅榜</h2></div>
+            <div class="panel-body" id="hotStocks"><div class="loading">載入中...</div></div>
+        </div>
+
+        <!-- Search Results -->
+        <div class="panel full-width">
             <div class="panel-header"><h2 id="searchTitle">搜尋結果</h2></div>
             <div class="panel-body" id="searchResults"><div class="loading">輸入關鍵字搜尋</div></div>
         </div>
@@ -105,6 +111,26 @@
         document.getElementById('searchInput').value = '';
         document.getElementById('searchTitle').textContent = '搜尋結果';
         document.getElementById('searchResults').innerHTML = '<div class="loading">輸入關鍵字搜尋</div>';
+    }
+
+    // Load hot stocks ranking
+    async function loadHotStocks() {
+        const res = await fetch('/api/hot-stocks');
+        const stocks = await res.json();
+        const container = document.getElementById('hotStocks');
+        if (!stocks || stocks.length === 0) {
+            container.innerHTML = '<div class="loading">無資料</div>';
+            return;
+        }
+        container.innerHTML = stocks.map(s => `
+            <div class="news-item" onclick="document.getElementById('searchInput').value='${s.code}';searchNews('${s.code}')">
+                <div class="title">
+                    <span style="color:#ffb74d;font-weight:700;margin-right:8px;">#${s.rank}</span>
+                    <span class="stock-tag">${s.code}</span>
+                    ${s.name}
+                </div>
+            </div>
+        `).join('');
     }
 
     // Load latest news on page load
@@ -254,6 +280,7 @@
 
     // Init
     loadLatestNews();
+    loadHotStocks();
     showScheduler();
     </script>
 </body>

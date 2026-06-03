@@ -10,7 +10,7 @@ from src.core.database import init_db, get_latest_news
 from src.services.news_service import search_news, get_stock_news, get_stock_kline, get_stock_list
 from src.services.udn_service import UdnScraper
 from src.services.ctee_service import CteeScraper
-from src.services.yahoo_service import YahooScraper
+from src.services.yahoo_service import YahooScraper, fetch_hot_stocks
 from src.core.stock_tagger import tag_all_untagged
 from src.core.database import get_connection
 from src.services.scheduler import start_scheduler, stop_scheduler, get_scheduler_status
@@ -70,6 +70,12 @@ def api_stock_kline(code: str, days: int = Query(90, le=365)):
 def api_stock_list():
     """Get all stock codes/names for autocomplete."""
     return get_stock_list()
+
+
+@app.get("/api/hot-stocks")
+def api_hot_stocks():
+    """Get Yahoo community hot stocks ranking."""
+    return fetch_hot_stocks()
 
 
 @app.post("/api/scrape")
