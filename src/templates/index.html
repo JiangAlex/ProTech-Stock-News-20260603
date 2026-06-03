@@ -173,7 +173,17 @@
         document.getElementById('stockPanel').style.display = 'block';
         document.getElementById('stockNewsPanel').style.display = 'block';
         document.getElementById('stockCode').textContent = code;
+        document.getElementById('stockName').textContent = '';
         document.getElementById('stockPanel').scrollIntoView({ behavior: 'smooth' });
+
+        // Load stock name
+        if (!window._stockMap) {
+            const sRes = await fetch('/api/stocks');
+            const stocks = await sRes.json();
+            window._stockMap = {};
+            stocks.forEach(s => window._stockMap[s.code] = s.name);
+        }
+        document.getElementById('stockName').textContent = window._stockMap[code] || '';
 
         // Load kline
         const kRes = await fetch(`/api/stock/${code}/kline?days=120`);
@@ -184,9 +194,6 @@
         const nRes = await fetch(`/api/stock/${code}/news`);
         const news = await nRes.json();
         renderNewsList('stockNewsList', news);
-
-        // Try to get stock name
-        document.getElementById('stockName').textContent = '';
     }
 
     // Render K-line chart
