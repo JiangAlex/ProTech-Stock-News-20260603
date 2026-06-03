@@ -219,7 +219,7 @@ function renderChart(data){
     // MA
     maLines.forEach((m,i)=>{
         if(!m.on)return;
-        const s=chart.addLineSeries({color:MA_COLORS[i],lineWidth:1});
+        const s=chart.addLineSeries({color:MA_COLORS[i],lineWidth:1,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false});
         s.setData(computeMA(cd,m.period));
     });
 
