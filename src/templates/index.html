@@ -110,12 +110,15 @@
         document.getElementById('searchTitle').textContent = `搜尋: ${query}`;
         document.getElementById('searchResults').innerHTML = '<div class="loading">搜尋中...</div>';
 
-        // Check if it's a stock code (4 digits)
+        // Check if it's a stock code (4 digits) -> show stock detail only
         if (/^\d{4}$/.test(query.trim())) {
             await loadStockDetail(query.trim());
+            document.getElementById('searchResults').innerHTML = '<div class="loading">請查看上方個股新聞面板</div>';
+            document.getElementById('searchTitle').textContent = `個股: ${query.trim()}`;
+            return;
         }
 
-        // Always do FTS search for text
+        // Text search via FTS5
         const res = await fetch(`/api/news/search?q=${encodeURIComponent(query)}`);
         const news = await res.json();
         renderNewsList('searchResults', news);
