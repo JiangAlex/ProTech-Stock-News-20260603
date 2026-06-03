@@ -33,19 +33,19 @@ def fetch_hot_stocks(rank_type="active"):
 
 
 def fetch_revenue(stock_code):
-    """Fetch annual revenue from Yahoo Stock revenue page."""
+    """Fetch monthly revenue from Yahoo Stock, grouped by year for multi-line chart."""
     resp = requests.get(f"{BASE_URL}/quote/{stock_code}.TW/revenue", headers=HEADERS, timeout=10)
     if resp.status_code != 200:
         return []
 
     soup = BeautifulSoup(resp.text, "lxml")
-    yearly = defaultdict(int)
+    data = []
     for li in soup.find_all("li"):
         m = re.match(r"(20\d{2})/(\d{2})\s+([\d,]+)", li.get_text(" ", strip=True))
         if m:
-            yearly[m.group(1)] += int(m.group(3).replace(",", ""))
+            data.append({"year": m.group(1), "month": int(m.group(2)), "revenue": int(m.group(3).replace(",", ""))})
 
-    return [{"year": y, "revenue": yearly[y]} for y in sorted(yearly)]
+    return data
 
 
 def fetch_eps(stock_code):

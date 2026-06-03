@@ -255,8 +255,32 @@ function renderChart(data){
 async function loadFundamentals(code){
     const [revRes,epsRes]=await Promise.all([fetch(`/api/stock/${code}/revenue`),fetch(`/api/stock/${code}/eps`)]);
     const rev=await revRes.json(), eps=await epsRes.json();
-    renderLineChart('revenueChart',rev.map(r=>({label:r.year,value:r.revenue/1e8})),'億');
+    renderRevenueChart('revenueChart', rev);
     renderLineChart('epsChart',eps.map(r=>({label:r.year,value:r.eps})),'元');
+}
+
+function renderRevenueChart(id, data){
+    const el=document.getElementById(id); el.innerHTML='';
+    if(!data||data.length===0){el.innerHTML='<div class="loading">無資料</div>';return;}
+
+    // Group by year
+    const years={};
+    data.forEach(d=>{if(!years[d.year])years[d.year]=[];years[d.year].push(d);});
+    const yearKeys=Object.keys(years).sort();
+    const colors=['#4fc3f7','#ffeb3b','#e91e63','#66bb6a','#ff9800','#ce93d8'];
+
+    const c=LightweightCharts.createChart(el,{width:el.clientWidth,height:170,
+        layout:{background:{color:'#14161e'},textColor:'#8b9dc3'},
+        grid:{vertLines:{color:'#1f222d'},horzLines:{color:'#1f222d'}},
+        timeScale:{borderColor:'#2a2d38'},rightPriceScale:{borderColor:'#2a2d38'}});
+
+    yearKeys.forEach((yr,i)=>{
+        const s=c.addLineSeries({color:colors[i%colors.length],lineWidth:2,title:yr,lastValueVisible:false,priceLineVisible:false});
+        // Use a fixed base year so all lines align on same x (month)
+        const sorted=years[yr].sort((a,b)=>a.month-b.month);
+        s.setData(sorted.map(d=>({time:`2000-${String(d.month).padStart(2,'0')}-01`,value:d.revenue/1e8})));
+    });
+    c.timeScale().fitContent();
 }
 
 function renderLineChart(id,data,unit){
