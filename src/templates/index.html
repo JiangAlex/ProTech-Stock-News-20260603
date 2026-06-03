@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProTech Stock News Dashboard</title>
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e1e5ea; }
+        .header { background: #1a1d28; padding: 12px 24px; display: flex; align-items: center; gap: 16px; border-bottom: 1px solid #2a2d38; }
+        .header h1 { font-size: 18px; color: #4fc3f7; }
+        .search-box { flex: 1; max-width: 400px; }
+        .search-box input { width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #3a3d48; background: #0f1117; color: #e1e5ea; font-size: 14px; }
+        .search-box input:focus { outline: none; border-color: #4fc3f7; }
+        .header-actions { display: flex; gap: 8px; }
+        .btn { padding: 8px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; }
+        .btn-primary { background: #4fc3f7; color: #0f1117; }
+        .btn-secondary { background: #2a2d38; color: #e1e5ea; border: 1px solid #3a3d48; }
+        .btn:hover { opacity: 0.85; }
+        .container { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; max-width: 1600px; margin: 0 auto; }
+        .panel { background: #1a1d28; border-radius: 8px; border: 1px solid #2a2d38; overflow: hidden; }
+        .panel-header { padding: 12px 16px; border-bottom: 1px solid #2a2d38; display: flex; align-items: center; justify-content: space-between; }
+        .panel-header h2 { font-size: 14px; color: #8b9dc3; }
+        .panel-body { padding: 0; max-height: 500px; overflow-y: auto; }
+        .news-item { padding: 10px 16px; border-bottom: 1px solid #1f222d; cursor: pointer; transition: background 0.15s; }
+        .news-item:hover { background: #22253a; }
+        .news-item .title { font-size: 13px; line-height: 1.5; margin-bottom: 4px; }
+        .news-item .meta { font-size: 11px; color: #6b7a8d; display: flex; gap: 8px; }
+        .tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+        .tag-udn { background: #1e3a5f; color: #4fc3f7; }
+        .tag-ctee { background: #3d2b1f; color: #ffb74d; }
+        .tag-yahoo { background: #2d1f3d; color: #ce93d8; }
+        .stock-tag { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 11px; background: #1a3d2b; color: #66bb6a; cursor: pointer; margin: 2px; }
+        .stock-tag:hover { background: #2a5d3b; }
+        .chart-container { width: 100%; height: 350px; }
+        .stock-info { padding: 12px 16px; display: flex; align-items: center; gap: 12px; }
+        .stock-info .code { font-size: 20px; font-weight: 700; color: #4fc3f7; }
+        .stock-info .name { font-size: 14px; color: #8b9dc3; }
+        .status-bar { padding: 8px 16px; font-size: 11px; color: #6b7a8d; border-top: 1px solid #2a2d38; display: flex; justify-content: space-between; }
+        .full-width { grid-column: 1 / -1; }
+        .loading { text-align: center; padding: 40px; color: #6b7a8d; }
+        @media (max-width: 900px) { .container { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📈 ProTech Stock News</h1>
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="搜尋新聞或輸入股票代號 (如 2330)..." />
+        </div>
+        <div class="header-actions">
+            <button class="btn btn-primary" onclick="triggerScrape()">⟳ 抓取新聞</button>
+            <button class="btn btn-secondary" onclick="showScheduler()">排程狀態</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Stock Detail Panel (hidden by default) -->
+        <div class="panel full-width" id="stockPanel" style="display:none;">
+            <div class="panel-header">
+                <div class="stock-info">
+                    <span class="code" id="stockCode"></span>
+                    <span class="name" id="stockName"></span>
+                </div>
+            </div>
+            <div class="chart-container" id="chartContainer"></div>
+        </div>
+
+        <!-- Stock News Panel (hidden by default) -->
+        <div class="panel full-width" id="stockNewsPanel" style="display:none;">
+            <div class="panel-header"><h2>個股相關新聞</h2></div>
+            <div class="panel-body" id="stockNewsList"></div>
+        </div>
+
+        <!-- Latest News -->
+        <div class="panel">
+            <div class="panel-header"><h2>最新新聞</h2></div>
+            <div class="panel-body" id="latestNews"><div class="loading">載入中...</div></div>
+        </div>
+
+        <!-- Search Results -->
+        <div class="panel">
+            <div class="panel-header"><h2 id="searchTitle">搜尋結果</h2></div>
+            <div class="panel-body" id="searchResults"><div class="loading">輸入關鍵字搜尋</div></div>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <span id="statusText">就緒</span>
+        <span id="schedulerInfo"></span>
+    </div>
+
+    <script>
+    let chart = null;
+    let candleSeries = null;
+    let volumeSeries = null;
+
+    // Load latest news on page load
+    async function loadLatestNews() {
+        const res = await fetch('/api/news/latest?limit=50');
+        const news = await res.json();
+        renderNewsList('latestNews', news);
+    }
+
+    // Search news
+    async function searchNews(query) {
+        if (!query.trim()) return;
+        document.getElementById('searchTitle').textContent = `搜尋: ${query}`;
+
+        // Check if it's a stock code (4 digits)
+        if (/^\d{4}$/.test(query.trim())) {
+            await loadStockDetail(query.trim());
+            return;
+        }
+
+        const res = await fetch(`/api/news/search?q=${encodeURIComponent(query)}`);
+        const news = await res.json();
+        renderNewsList('searchResults', news);
+    }
+
+    // Load stock detail (chart + news)
+    async function loadStockDetail(code) {
+        document.getElementById('stockPanel').style.display = 'block';
+        document.getElementById('stockNewsPanel').style.display = 'block';
+        document.getElementById('stockCode').textContent = code;
+
+        // Load kline
+        const kRes = await fetch(`/api/stock/${code}/kline?days=120`);
+        const kline = await kRes.json();
+        renderChart(kline);
+
+        // Load stock news
+        const nRes = await fetch(`/api/stock/${code}/news`);
+        const news = await nRes.json();
+        renderNewsList('stockNewsList', news);
+
+        // Try to get stock name
+        document.getElementById('stockName').textContent = '';
+    }
+
+    // Render K-line chart
+    function renderChart(data) {
+        const container = document.getElementById('chartContainer');
+        container.innerHTML = '';
+
+        if (!data || data.length === 0) {
+            container.innerHTML = '<div class="loading">無 K 線資料</div>';
+            return;
+        }
+
+        chart = LightweightCharts.createChart(container, {
+            width: container.clientWidth,
+            height: 350,
+            layout: { background: { color: '#1a1d28' }, textColor: '#8b9dc3' },
+            grid: { vertLines: { color: '#2a2d38' }, horzLines: { color: '#2a2d38' } },
+            crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+            timeScale: { borderColor: '#2a2d38' },
+        });
+
+        candleSeries = chart.addCandlestickSeries({
+            upColor: '#ef5350', downColor: '#26a69a',
+            borderUpColor: '#ef5350', borderDownColor: '#26a69a',
+            wickUpColor: '#ef5350', wickDownColor: '#26a69a',
+        });
+
+        const chartData = data.map(d => ({
+            time: d.date, open: d.open, high: d.high, low: d.low, close: d.close,
+        }));
+        candleSeries.setData(chartData);
+
+        volumeSeries = chart.addHistogramSeries({
+            color: '#4fc3f7', priceFormat: { type: 'volume' },
+            priceScaleId: '', scaleMargins: { top: 0.85, bottom: 0 },
+        });
+        volumeSeries.setData(data.map(d => ({
+            time: d.date, value: d.volume, color: d.close >= d.open ? '#ef535080' : '#26a69a80',
+        })));
+
+        chart.timeScale().fitContent();
+
+        // Responsive resize
+        new ResizeObserver(() => {
+            chart.applyOptions({ width: container.clientWidth });
+        }).observe(container);
+    }
+
+    // Render news list
+    function renderNewsList(containerId, news) {
+        const container = document.getElementById(containerId);
+        if (!news || news.length === 0) {
+            container.innerHTML = '<div class="loading">無資料</div>';
+            return;
+        }
+        container.innerHTML = news.map(n => `
+            <div class="news-item" onclick="window.open('${n.url}', '_blank')">
+                <div class="title">
+                    <span class="tag tag-${n.source}">${n.source.toUpperCase()}</span>
+                    ${n.title}
+                </div>
+                <div class="meta">
+                    <span>${n.category || ''}</span>
+                    <span>${n.published_at || ''}</span>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Trigger scrape
+    async function triggerScrape() {
+        document.getElementById('statusText').textContent = '正在抓取新聞...';
+        try {
+            const res = await fetch('/api/scrape', { method: 'POST' });
+            const data = await res.json();
+            document.getElementById('statusText').textContent =
+                `抓取完成: UDN=${data.udn||0}, CTEE=${data.ctee||0}, Yahoo=${data.yahoo||0}, 標記=${data.tagged||0}`;
+            loadLatestNews();
+        } catch (e) {
+            document.getElementById('statusText').textContent = `抓取失敗: ${e.message}`;
+        }
+    }
+
+    // Show scheduler status
+    async function showScheduler() {
+        const res = await fetch('/api/scheduler/status');
+        const data = await res.json();
+        const info = data.jobs.map(j => `${j.name}: 下次 ${j.next_run}`).join(' | ');
+        document.getElementById('schedulerInfo').textContent = info || '無排程';
+    }
+
+    // Event listeners
+    document.getElementById('searchInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') searchNews(e.target.value);
+    });
+
+    // Init
+    loadLatestNews();
+    showScheduler();
+    </script>
+</body>
+</html>
