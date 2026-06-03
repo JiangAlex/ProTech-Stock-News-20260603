@@ -10,7 +10,7 @@
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e1e5ea; }
         .header { background: #1a1d28; padding: 12px 24px; display: flex; align-items: center; gap: 16px; border-bottom: 1px solid #2a2d38; }
         .header h1 { font-size: 18px; color: #4fc3f7; }
-        .search-box { flex: 1; max-width: 400px; }
+        .search-box { flex: 1; max-width: 450px; display: flex; gap: 4px; }
         .search-box input { width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #3a3d48; background: #0f1117; color: #e1e5ea; font-size: 14px; }
         .search-box input:focus { outline: none; border-color: #4fc3f7; }
         .header-actions { display: flex; gap: 8px; }
@@ -48,6 +48,7 @@
         <h1>📈 ProTech Stock News</h1>
         <div class="search-box">
             <input type="text" id="searchInput" placeholder="搜尋新聞或輸入股票代號 (如 2330)..." />
+            <button class="btn btn-primary" onclick="searchNews(document.getElementById('searchInput').value)" style="margin-left:4px;">搜尋</button>
         </div>
         <div class="header-actions">
             <button class="btn btn-primary" onclick="triggerScrape()">⟳ 抓取新聞</button>
@@ -107,16 +108,18 @@
     async function searchNews(query) {
         if (!query.trim()) return;
         document.getElementById('searchTitle').textContent = `搜尋: ${query}`;
+        document.getElementById('searchResults').innerHTML = '<div class="loading">搜尋中...</div>';
 
         // Check if it's a stock code (4 digits)
         if (/^\d{4}$/.test(query.trim())) {
             await loadStockDetail(query.trim());
-            return;
         }
 
+        // Always do FTS search for text
         const res = await fetch(`/api/news/search?q=${encodeURIComponent(query)}`);
         const news = await res.json();
         renderNewsList('searchResults', news);
+        document.getElementById('searchTitle').textContent = `搜尋: ${query} (${news.length} 筆)`;
     }
 
     // Load stock detail (chart + news)
