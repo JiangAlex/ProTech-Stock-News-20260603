@@ -125,22 +125,42 @@ def insert_news(title, url, source, category=None, content=None, published_at=No
 
 
 def search_news_fts(query, limit=20):
-    """Search news using FTS5 full-text search."""
+    """Search news using FTS5 full-text search + LIKE fallback."""
     import re
     conn = get_connection()
     try:
+        results = []
+        seen_ids = set()
+
+        # FTS5 search
         words = re.findall(r"[\u4e00-\u9fffA-Za-z0-9]+", query)
-        if not words:
-            return []
-        fts_query = " OR ".join([f"{w}*" for w in words])
-        rows = conn.execute(
-            "SELECT n.* FROM news n JOIN news_fts ON n.id = news_fts.rowid "
-            "WHERE news_fts MATCH ? ORDER BY rank LIMIT ?",
-            (fts_query, limit)
+        if words:
+            fts_query = " OR ".join([f"{w}*" for w in words])
+            try:
+                rows = conn.execute(
+                    "SELECT n.* FROM news n JOIN news_fts ON n.id = news_fts.rowid "
+                    "WHERE news_fts MATCH ? ORDER BY rank LIMIT ?",
+                    (fts_query, limit)
+                ).fetchall()
+                for r in rows:
+                    results.append(dict(r))
+                    seen_ids.add(r["id"])
+            except Exception:
+                pass
+
+        # LIKE fallback for content that FTS5 might miss
+        like_pattern = f"%{query}%"
+        rows2 = conn.execute(
+            "SELECT * FROM news WHERE (title LIKE ? OR content LIKE ?) "
+            "AND id NOT IN ({}) ORDER BY published_at DESC LIMIT ?".format(
+                ",".join(str(i) for i in seen_ids) if seen_ids else "0"
+            ),
+            (like_pattern, like_pattern, limit - len(results))
         ).fetchall()
-        return [dict(r) for r in rows]
-    except sqlite3.OperationalError:
-        return []
+        for r in rows2:
+            results.append(dict(r))
+
+        return results[:limit]
     finally:
         conn.close()
 
