@@ -61,14 +61,6 @@
 <!-- Settings Panel -->
 <div class="settings" id="settingsPanel">
     <div class="settings-row">
-        <strong>週期：</strong>
-        <select id="selPeriod" onchange="reloadChart()">
-            <option value="daily">日線</option>
-            <option value="weekly">週線</option>
-            <option value="monthly">月線</option>
-        </select>
-        <strong>天數：</strong>
-        <input type="number" id="numDays" value="120" min="20" max="500" onchange="reloadChart()">
         <strong>子圖：</strong>
         <label><input type="radio" name="sub" value="vol" checked onchange="reloadChart()"> VOL</label>
         <label><input type="radio" name="sub" value="macd" onchange="reloadChart()"> MACD</label>
@@ -92,7 +84,13 @@
                 <span class="code" id="stockCode"></span>
                 <span class="name" id="stockName"></span>
             </div>
-            <div>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <select id="selPeriod" onchange="reloadChart()" style="padding:4px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;">
+                    <option value="daily">日線</option>
+                    <option value="weekly">週線</option>
+                    <option value="monthly">月線</option>
+                </select>
+                <input type="number" id="numDays" value="120" min="20" max="500" onchange="reloadChart()" style="width:50px;padding:4px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;text-align:center;">
                 <button class="btn btn-s" id="btnWatch" onclick="toggleWatch()">★ 加入自選</button>
                 <button class="btn btn-s" onclick="openYahooNews()">📰 新聞</button>
                 <button class="btn btn-s" onclick="closeStock()">✕</button>
