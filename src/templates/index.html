@@ -126,10 +126,11 @@
     <!-- News Panel -->
     <div class="panel full-width" id="newsPanel">
         <div class="panel-header">
-            <h2>📰 台股新聞</h2>
-            <a href="https://tw.stock.yahoo.com/tw-market/" target="_blank" class="btn btn-s" style="font-size:11px;text-decoration:none;">開啟 Yahoo →</a>
+            <h2>📰 新聞</h2>
+            <div>
+                <a id="newsLink" href="https://tw.stock.yahoo.com/tw-market/" target="_blank" class="btn btn-p" style="text-decoration:none;">開啟台股新聞 →</a>
+            </div>
         </div>
-        <iframe id="newsFrame" src="https://tw.stock.yahoo.com/tw-market/" style="width:100%;height:500px;border:none;background:#fff;"></iframe>
     </div>
 </div>
 
@@ -174,7 +175,8 @@ async function loadStock(code){
 
     await reloadChart();
     loadFundamentals(code);
-    document.getElementById('newsFrame').src=`https://tw.news.search.yahoo.com/search?p=${code}&fr=finance`;
+    document.getElementById('newsLink').href=`https://tw.news.search.yahoo.com/search?p=${code}&fr=finance`;
+    document.getElementById('newsLink').textContent=`開啟 ${code} 新聞 →`;
 }
 
 async function reloadChart(){
@@ -186,8 +188,8 @@ async function reloadChart(){
     renderChart(lastData);
 }
 
-function closeStock(){ document.getElementById('stockPanel').style.display='none'; currentCode=''; document.getElementById('newsFrame').src='https://tw.stock.yahoo.com/tw-market/'; }
-function openYahooNews(){ document.getElementById('newsFrame').src=`https://tw.news.search.yahoo.com/search?p=${currentCode}&fr=finance`; document.getElementById('newsPanel').scrollIntoView({behavior:'smooth'}); }
+function closeStock(){ document.getElementById('stockPanel').style.display='none'; currentCode=''; document.getElementById('newsLink').href='https://tw.stock.yahoo.com/tw-market/'; document.getElementById('newsLink').textContent='開啟台股新聞 →'; }
+function openYahooNews(){ window.open(`https://tw.news.search.yahoo.com/search?p=${currentCode}&fr=finance`,'_blank'); }
 
 // --- Chart ---
 function computeMA(data,period){
