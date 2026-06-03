@@ -64,6 +64,7 @@
                     <span class="code" id="stockCode"></span>
                     <span class="name" id="stockName"></span>
                 </div>
+                <button class="btn btn-secondary" onclick="closeStockPanel()">✕ 關閉</button>
             </div>
             <div class="chart-container" id="chartContainer"></div>
         </div>
@@ -96,6 +97,15 @@
     let chart = null;
     let candleSeries = null;
     let volumeSeries = null;
+
+    // Close stock panel and return to home view
+    function closeStockPanel() {
+        document.getElementById('stockPanel').style.display = 'none';
+        document.getElementById('stockNewsPanel').style.display = 'none';
+        document.getElementById('searchInput').value = '';
+        document.getElementById('searchTitle').textContent = '搜尋結果';
+        document.getElementById('searchResults').innerHTML = '<div class="loading">輸入關鍵字搜尋</div>';
+    }
 
     // Load latest news on page load
     async function loadLatestNews() {
