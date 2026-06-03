@@ -1,117 +1,66 @@
-# Implementation Plan - ProTech-Stock-News 個股新聞爬蟲與整合系統
+# ProTech-Stock-News Dashboard — Implementation Plan
 
-## Problem Statement
-建立一個獨立專案，從**經濟日報** (money.udn.com)、**工商時報** (ctee.com.tw) 和 **Yahoo 股市** (tw.stock.yahoo.com) 爬取最新全站新聞，存入 SQLite FTS5 資料庫。支援按個股搜尋相關新聞，並融合 ProTech-QuantStockDB (PostgreSQL) 的歷史 K 線資料，透過 Dashboard 展示個股新聞 + K 線圖。
+## 系統概述
+個股技術分析 + 基本面 Dashboard。整合 ProTech-QuantStockDB (PostgreSQL) K 線、營收、獲利資料，結合 Yahoo 社群爆紅榜與新聞外連。
 
-## Requirements
-1. 爬取經濟日報、工商時報、Yahoo 股市全站最新新聞
-2. 支援定時排程 + 手動觸發
-3. 自動提取新聞中提到的股票代號/名稱，建立新聞-個股關聯
-4. FTS5 全文搜尋作為補充搜尋方式
-5. 透過 API 連線 PostgreSQL 讀取 K 線資料
-6. Dashboard 首頁顯示最新新聞、熱門個股，點入後顯示新聞 + K 線圖
-7. 非 AI fallback path
+## 架構
 
-## Background
-- **經濟日報** (money.udn.com)：新聞列表可用 HTML 抓取，URL 結構為 `/money/cate/{cate_id}`，分類包含證券(5607)、產業(5612)等
-- **工商時報** (ctee.com.tw)：使用 Cloudflare 保護（返回 403），需使用 cloudscraper 或 Playwright 繞過
-- **Yahoo 股市** (tw.stock.yahoo.com)：新聞分類明確（台股盤勢、ETF、美股、陸港股等），URL 結構為 `/news`，頁面為 SSR + hydration，可直接用 requests + BeautifulSoup 抓取
-- **ProTech-QuantStockDB**：PostgreSQL (blog.softsnail.com:2432, db: twsestock)，包含 `stock_basic`（約 1964 檔）和 `daily_kline`（2023~至今）
-
-## Coding Conventions
-- **Structure**: Core logic in `src/core/`, high-level services in `src/services/`
-- **Language**: Technical explanations in **Traditional Chinese**
-- **Code**: All code elements (variables, functions, comments) in **English**
-- **Fallback**: Always provide a non-AI fallback path for data processing
-
-## Project Structure
-```
-ProTech-Stock-News-20260603/
-├── docs/
-│   └── implementation-plan.md
-├── src/
-│   ├── core/
-│   │   ├── __init__.py
-│   │   ├── database.py
-│   │   ├── scraper.py
-│   │   ├── stock_tagger.py
-│   │   └── pg_client.py
-│   ├── services/
-│   │   ├── __init__.py
-│   │   ├── udn_service.py
-│   │   ├── ctee_service.py
-│   │   ├── yahoo_service.py
-│   │   ├── news_service.py
-│   │   └── scheduler.py
-│   ├── __init__.py
-│   ├── server.py
-│   └── templates/
-│       └── index.html
-├── data/
-│   └── news.db
-├── tests/
-├── requirements.txt
-└── README.md
-```
-
-## Architecture Diagram
 ```mermaid
 graph TD
-    subgraph Scraper Layer
-        A[Scheduler / Manual Trigger] --> B[UDN Scraper]
-        A --> C[CTEE Scraper]
-        A --> D2[Yahoo Stock Scraper]
-    end
-
-    subgraph Processing Layer
-        B --> D[Article Parser]
-        C --> D
-        D2 --> D
-        D --> E[Stock Tagger]
-    end
-
-    subgraph Storage Layer
-        E --> F[SQLite FTS5 - news_fts]
-        E --> G[SQLite - news / news_stock_rel]
-    end
-
-    subgraph Query Layer
-        H[FastAPI Server] --> G
-        H --> F
-        H --> I[PostgreSQL - QuantStockDB]
-    end
-
-    subgraph Frontend
-        J[Dashboard Web UI] --> H
-    end
+    A[Dashboard SPA] --> B[FastAPI Server :8020]
+    B --> C[PostgreSQL - QuantStockDB]
+    B --> D[SQLite - Watchlist]
+    B --> E[Yahoo Stock API]
+    A -->|外連| F[Yahoo News Search]
 ```
 
-## Task Breakdown
+## 功能清單
 
-### Task 1: 專案骨架與資料庫初始化
-- 建立 `requirements.txt`
-- `src/core/database.py`：news 表、news_stock_rel 表、FTS5 虛擬表 news_fts
+| 功能 | 說明 |
+|------|------|
+| K 線圖 | 日/週/月線切換，天數可調 |
+| MA 均線 | 最多 5 條自訂（天數+開關） |
+| VOL / MACD | 互斥子圖（radio 切換） |
+| 年度營收走勢 | 折線圖（月營收按年加總） |
+| 累計淨利 | 折線圖（季報營收×稅後淨利率） |
+| 自選股 | SQLite 持久化，CRUD |
+| 社群爆紅榜 | Yahoo 最多瀏覽/激增/熱門搜尋 |
+| 個股新聞 | 外連 Yahoo News 搜尋 |
+| 設定面板 | 週期/天數/MA/子圖 統一設定 |
 
-### Task 2: Base Scraper 與經濟日報爬蟲
-- `src/core/scraper.py`：BaseScraper (rate-limit, retry, User-Agent)
-- `src/services/udn_service.py`：fetch_news_list, fetch_article, scrape_all
+## API Endpoints
 
-### Task 3: 工商時報爬蟲
-- `src/services/ctee_service.py`：cloudscraper 繞過 Cloudflare
+| Method | Path | 說明 |
+|--------|------|------|
+| GET | `/api/stocks` | 全部股票清單 |
+| GET | `/api/stock/{code}/kline?period=&days=` | K 線 (daily/weekly/monthly) |
+| GET | `/api/stock/{code}/revenue` | 年度營收 |
+| GET | `/api/stock/{code}/eps` | 累計淨利 |
+| GET | `/api/hot-stocks?type=` | 社群爆紅榜 |
+| GET | `/api/watchlist` | 取得自選股 |
+| POST | `/api/watchlist/{code}?name=` | 加入自選 |
+| DELETE | `/api/watchlist/{code}` | 移除自選 |
 
-### Task 4: Yahoo 股市爬蟲
-- `src/services/yahoo_service.py`：fetch_news_list, fetch_article, scrape_all
+## 專案結構
 
-### Task 5: Stock Tagger 個股辨識
-- `src/core/stock_tagger.py`：regex 比對股票代號/名稱
-- `src/core/pg_client.py`：PostgreSQL 連線
+```
+src/
+├── core/
+│   ├── database.py    # SQLite (watchlist only)
+│   └── pg_client.py   # PostgreSQL queries
+├── services/
+│   └── yahoo_service.py  # Hot stocks
+├── server.py          # FastAPI
+└── templates/
+    └── index.html     # Dashboard SPA
+```
 
-### Task 6: FastAPI Server 與新聞查詢 API
-- `src/services/news_service.py`：search_news, get_stock_news, get_latest_news
-- `src/server.py`：RESTful API endpoints
+## 資料來源
 
-### Task 7: 排程器
-- `src/services/scheduler.py`：APScheduler 每日 08:00/12:00/18:00
-
-### Task 8: Dashboard Web UI
-- `src/templates/index.html`：lightweight-charts K線圖 + 新聞列表
+- **PostgreSQL** (blog.softsnail.com:2432/twsestock)
+  - `stock_basic` — 1964 檔股票
+  - `daily_kline` — 日K線 2023~至今
+  - `monthly_revenue` / `monthly_revenue_tpex` — 月營收
+  - `quarterly_profit` — 季獲利
+- **Yahoo Stock** — 社群爆紅榜即時抓取
+- **SQLite** — 自選股本地儲存

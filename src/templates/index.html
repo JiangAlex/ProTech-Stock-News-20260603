@@ -3,300 +3,308 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ProTech Stock News Dashboard</title>
+    <title>ProTech Stock Dashboard</title>
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e1e5ea; }
-        .header { background: #1a1d28; padding: 12px 24px; display: flex; align-items: center; gap: 16px; border-bottom: 1px solid #2a2d38; }
-        .header h1 { font-size: 18px; color: #4fc3f7; }
-        .search-box { flex: 1; max-width: 450px; display: flex; gap: 4px; }
-        .search-box input { width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #3a3d48; background: #0f1117; color: #e1e5ea; font-size: 14px; }
-        .search-box input:focus { outline: none; border-color: #4fc3f7; }
-        .header-actions { display: flex; gap: 8px; }
-        .btn { padding: 8px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; }
-        .btn-primary { background: #4fc3f7; color: #0f1117; }
-        .btn-secondary { background: #2a2d38; color: #e1e5ea; border: 1px solid #3a3d48; }
-        .btn:hover { opacity: 0.85; }
-        .container { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; max-width: 1600px; margin: 0 auto; }
-        .panel { background: #1a1d28; border-radius: 8px; border: 1px solid #2a2d38; overflow: hidden; }
-        .panel-header { padding: 12px 16px; border-bottom: 1px solid #2a2d38; display: flex; align-items: center; justify-content: space-between; }
-        .panel-header h2 { font-size: 14px; color: #8b9dc3; }
-        .panel-body { padding: 0; max-height: 500px; overflow-y: auto; }
-        .news-item { padding: 10px 16px; border-bottom: 1px solid #1f222d; cursor: pointer; transition: background 0.15s; }
-        .news-item:hover { background: #22253a; }
-        .news-item .title { font-size: 13px; line-height: 1.5; margin-bottom: 4px; }
-        .news-item .meta { font-size: 11px; color: #6b7a8d; display: flex; gap: 8px; }
-        .tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
-        .tag-udn { background: #1e3a5f; color: #4fc3f7; }
-        .tag-ctee { background: #3d2b1f; color: #ffb74d; }
-        .tag-yahoo { background: #2d1f3d; color: #ce93d8; }
-        .stock-tag { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 11px; background: #1a3d2b; color: #66bb6a; cursor: pointer; margin: 2px; }
-        .stock-tag:hover { background: #2a5d3b; }
-        .chart-container { width: 100%; height: 350px; }
-        .stock-info { padding: 12px 16px; display: flex; align-items: center; gap: 12px; }
-        .stock-info .code { font-size: 20px; font-weight: 700; color: #4fc3f7; }
-        .stock-info .name { font-size: 14px; color: #8b9dc3; }
-        .status-bar { padding: 8px 16px; font-size: 11px; color: #6b7a8d; border-top: 1px solid #2a2d38; display: flex; justify-content: space-between; }
-        .full-width { grid-column: 1 / -1; }
-        .loading { text-align: center; padding: 40px; color: #6b7a8d; }
-        @media (max-width: 900px) { .container { grid-template-columns: 1fr; } }
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e1e5ea}
+        .header{background:#1a1d28;padding:10px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #2a2d38}
+        .header h1{font-size:16px;color:#4fc3f7}
+        .search-box{flex:1;max-width:400px;display:flex;gap:4px}
+        .search-box input{width:100%;padding:7px 10px;border-radius:6px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:13px}
+        .search-box input:focus{outline:none;border-color:#4fc3f7}
+        .btn{padding:6px 12px;border-radius:5px;border:none;cursor:pointer;font-size:12px;font-weight:500}
+        .btn-p{background:#4fc3f7;color:#0f1117}
+        .btn-s{background:#2a2d38;color:#e1e5ea;border:1px solid #3a3d48}
+        .btn:hover{opacity:0.85}
+        .settings{display:none;background:#1a1d28;padding:10px 20px;border-bottom:1px solid #2a2d38;font-size:12px}
+        .settings label{margin-right:10px;cursor:pointer}
+        .settings input[type=number]{width:50px;padding:3px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;text-align:center}
+        .settings select{padding:3px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea}
+        .settings-row{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+        .settings-row strong{color:#8b9dc3;min-width:60px}
+        .ma-item{display:inline-flex;align-items:center;gap:3px;margin-right:8px}
+        .container{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px;max-width:1600px;margin:0 auto}
+        .panel{background:#1a1d28;border-radius:8px;border:1px solid #2a2d38;overflow:hidden}
+        .panel-header{padding:10px 14px;border-bottom:1px solid #2a2d38;display:flex;align-items:center;justify-content:space-between}
+        .panel-header h2{font-size:13px;color:#8b9dc3}
+        .panel-body{max-height:450px;overflow-y:auto}
+        .full-width{grid-column:1/-1}
+        .chart-container{width:100%;height:380px}
+        .fund-charts{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px}
+        .fund-chart{height:200px;background:#14161e;border-radius:6px;padding:8px}
+        .fund-chart h3{font-size:11px;color:#8b9dc3;margin-bottom:4px}
+        .stock-item{padding:8px 14px;border-bottom:1px solid #1f222d;cursor:pointer;display:flex;align-items:center;justify-content:space-between;transition:background 0.15s}
+        .stock-item:hover{background:#22253a}
+        .stock-item .info{display:flex;align-items:center;gap:8px}
+        .stock-item .rank{color:#ffb74d;font-weight:700;width:24px}
+        .stock-item .code{color:#4fc3f7;font-size:12px}
+        .stock-item .name{font-size:13px}
+        .stock-item .del{color:#ef5350;cursor:pointer;font-size:14px;padding:2px 6px}
+        .stock-info{display:flex;align-items:center;gap:12px;padding:10px 14px}
+        .stock-info .code{font-size:18px;font-weight:700;color:#4fc3f7}
+        .stock-info .name{font-size:13px;color:#8b9dc3}
+        .loading{text-align:center;padding:30px;color:#6b7a8d;font-size:12px}
+        @media(max-width:900px){.container{grid-template-columns:1fr}.fund-charts{grid-template-columns:1fr}}
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>📈 ProTech Stock News</h1>
-        <div class="search-box">
-            <input type="text" id="searchInput" placeholder="搜尋新聞或輸入股票代號 (如 2330)..." />
-            <button class="btn btn-primary" onclick="searchNews(document.getElementById('searchInput').value)" style="margin-left:4px;">搜尋</button>
+<div class="header">
+    <h1>📈 ProTech Stock</h1>
+    <div class="search-box">
+        <input type="text" id="searchInput" placeholder="輸入股票代號 (如 2330)" />
+        <button class="btn btn-p" onclick="doSearch()">查詢</button>
+    </div>
+    <button class="btn btn-s" onclick="toggleSettings()">⚙ 設定</button>
+</div>
+
+<!-- Settings Panel -->
+<div class="settings" id="settingsPanel">
+    <div class="settings-row">
+        <strong>週期：</strong>
+        <select id="selPeriod" onchange="reloadChart()">
+            <option value="daily">日線</option>
+            <option value="weekly">週線</option>
+            <option value="monthly">月線</option>
+        </select>
+        <strong>天數：</strong>
+        <input type="number" id="numDays" value="120" min="20" max="500" onchange="reloadChart()">
+        <strong>子圖：</strong>
+        <label><input type="radio" name="sub" value="vol" checked onchange="reloadChart()"> VOL</label>
+        <label><input type="radio" name="sub" value="macd" onchange="reloadChart()"> MACD</label>
+    </div>
+    <div class="settings-row">
+        <strong>MA：</strong>
+        <div id="maSettings"></div>
+        <button class="btn btn-s" onclick="addMA()" style="font-size:11px;">+ 新增</button>
+    </div>
+    <div class="settings-row">
+        <strong>自選股：</strong>
+        <span id="watchlistInline" style="color:#66bb6a;"></span>
+    </div>
+</div>
+
+<div class="container">
+    <!-- Stock Chart Panel -->
+    <div class="panel full-width" id="stockPanel" style="display:none;">
+        <div class="panel-header">
+            <div class="stock-info">
+                <span class="code" id="stockCode"></span>
+                <span class="name" id="stockName"></span>
+            </div>
+            <div>
+                <button class="btn btn-s" id="btnWatch" onclick="toggleWatch()">★ 加入自選</button>
+                <button class="btn btn-s" onclick="openYahooNews()">📰 新聞</button>
+                <button class="btn btn-s" onclick="closeStock()">✕</button>
+            </div>
         </div>
-        <div class="header-actions">
-            <button class="btn btn-primary" onclick="triggerScrape()">⟳ 抓取新聞</button>
-            <button class="btn btn-secondary" onclick="showScheduler()">排程狀態</button>
+        <div class="chart-container" id="chartContainer"></div>
+        <!-- Fundamental charts -->
+        <div class="fund-charts" id="fundCharts">
+            <div class="fund-chart"><h3>年度營收走勢</h3><div id="revenueChart" style="height:170px"></div></div>
+            <div class="fund-chart"><h3>累計 EPS</h3><div id="epsChart" style="height:170px"></div></div>
         </div>
     </div>
 
-    <div class="container">
-        <!-- Stock Detail Panel (hidden by default) -->
-        <div class="panel full-width" id="stockPanel" style="display:none;">
-            <div class="panel-header">
-                <div class="stock-info">
-                    <span class="code" id="stockCode"></span>
-                    <span class="name" id="stockName"></span>
-                </div>
-                <button class="btn btn-secondary" onclick="closeStockPanel()">✕ 關閉</button>
-            </div>
-            <div class="chart-container" id="chartContainer"></div>
-        </div>
-
-        <!-- Stock News Panel (hidden by default) -->
-        <div class="panel full-width" id="stockNewsPanel" style="display:none;">
-            <div class="panel-header"><h2>個股相關新聞</h2></div>
-            <div class="panel-body" id="stockNewsList"></div>
-        </div>
-
-        <!-- Latest News -->
-        <div class="panel">
-            <div class="panel-header"><h2>最新新聞</h2></div>
-            <div class="panel-body" id="latestNews"><div class="loading">載入中...</div></div>
-        </div>
-
-        <!-- Hot Stocks -->
-        <div class="panel">
-            <div class="panel-header">
-                <h2>🔥 社群爆紅榜</h2>
-                <div>
-                    <button class="btn btn-primary" onclick="loadHotStocks('active')" style="font-size:11px;padding:4px 8px;">最多瀏覽</button>
-                    <button class="btn btn-secondary" onclick="loadHotStocks('trending')" style="font-size:11px;padding:4px 8px;">瀏覽激增</button>
-                    <button class="btn btn-secondary" onclick="loadHotStocks('search')" style="font-size:11px;padding:4px 8px;">熱門搜尋</button>
-                </div>
-            </div>
-            <div class="panel-body" id="hotStocks"><div class="loading">載入中...</div></div>
-        </div>
-
-        <!-- Search Results -->
-        <div class="panel full-width">
-            <div class="panel-header"><h2 id="searchTitle">搜尋結果</h2></div>
-            <div class="panel-body" id="searchResults"><div class="loading">輸入關鍵字搜尋</div></div>
-        </div>
+    <!-- Watchlist -->
+    <div class="panel">
+        <div class="panel-header"><h2>★ 自選股</h2></div>
+        <div class="panel-body" id="watchlistPanel"><div class="loading">無自選股</div></div>
     </div>
 
-    <div class="status-bar">
-        <span id="statusText">就緒</span>
-        <span id="schedulerInfo"></span>
+    <!-- Hot Stocks -->
+    <div class="panel">
+        <div class="panel-header">
+            <h2>🔥 社群爆紅榜</h2>
+            <div>
+                <button class="btn btn-p" onclick="loadHot('active')" style="font-size:10px;padding:3px 6px;">瀏覽</button>
+                <button class="btn btn-s" onclick="loadHot('trending')" style="font-size:10px;padding:3px 6px;">激增</button>
+                <button class="btn btn-s" onclick="loadHot('search')" style="font-size:10px;padding:3px 6px;">搜尋</button>
+            </div>
+        </div>
+        <div class="panel-body" id="hotPanel"><div class="loading">載入中...</div></div>
     </div>
+</div>
 
-    <script>
-    let chart = null;
-    let candleSeries = null;
-    let volumeSeries = null;
+<script>
+// --- State ---
+let chart = null, currentCode = '', lastData = [];
+const MA_COLORS = ['#ffeb3b','#2196f3','#e91e63','#66bb6a','#ff9800'];
+let maLines = [{period:5,on:true},{period:20,on:true},{period:60,on:true}];
 
-    // Close stock panel and return to home view
-    function closeStockPanel() {
-        document.getElementById('stockPanel').style.display = 'none';
-        document.getElementById('stockNewsPanel').style.display = 'none';
-        document.getElementById('searchInput').value = '';
-        document.getElementById('searchTitle').textContent = '搜尋結果';
-        document.getElementById('searchResults').innerHTML = '<div class="loading">輸入關鍵字搜尋</div>';
-    }
+// --- Settings ---
+function toggleSettings(){ const p=document.getElementById('settingsPanel'); p.style.display=p.style.display==='none'?'block':'none'; }
 
-    // Load hot stocks ranking
-    async function loadHotStocks(type = 'active') {
-        const res = await fetch(`/api/hot-stocks?type=${type}`);
-        const stocks = await res.json();
-        const container = document.getElementById('hotStocks');
-        if (!stocks || stocks.length === 0) {
-            container.innerHTML = '<div class="loading">無資料</div>';
-            return;
-        }
-        container.innerHTML = stocks.map(s => `
-            <div class="news-item" onclick="document.getElementById('searchInput').value='${s.code}';searchNews('${s.code}')">
-                <div class="title">
-                    <span style="color:#ffb74d;font-weight:700;margin-right:8px;">#${s.rank}</span>
-                    <span class="stock-tag">${s.code}</span>
-                    ${s.name}
-                </div>
-            </div>
-        `).join('');
-    }
+function renderMASettings(){
+    const c=document.getElementById('maSettings');
+    c.innerHTML=maLines.map((m,i)=>`<span class="ma-item">
+        <input type="checkbox" ${m.on?'checked':''} onchange="maLines[${i}].on=this.checked;reloadChart()">
+        <input type="number" value="${m.period}" min="2" max="250" style="width:40px" onchange="maLines[${i}].period=+this.value;reloadChart()">
+        <span style="color:${MA_COLORS[i]}">■</span>
+        <span onclick="maLines.splice(${i},1);renderMASettings();reloadChart()" style="cursor:pointer;color:#ef5350;">✕</span>
+    </span>`).join('');
+}
+function addMA(){ if(maLines.length<5){maLines.push({period:10,on:true});renderMASettings();reloadChart();} }
 
-    // Load latest news on page load
-    async function loadLatestNews() {
-        const res = await fetch('/api/news/latest?limit=50');
-        const news = await res.json();
-        renderNewsList('latestNews', news);
-    }
+// --- Search ---
+function doSearch(){
+    const v=document.getElementById('searchInput').value.trim();
+    if(/^\d{4}$/.test(v)) loadStock(v);
+}
+document.addEventListener('keydown',e=>{if(e.key==='Enter')doSearch();});
 
-    // Search news
-    async function searchNews(query) {
-        if (!query.trim()) return;
-        document.getElementById('searchTitle').textContent = `搜尋: ${query}`;
-        document.getElementById('searchResults').innerHTML = '<div class="loading">搜尋中...</div>';
+// --- Stock Detail ---
+async function loadStock(code){
+    currentCode=code;
+    document.getElementById('stockPanel').style.display='block';
+    document.getElementById('stockCode').textContent=code;
+    document.getElementById('stockPanel').scrollIntoView({behavior:'smooth'});
 
-        // Check if it's a stock code (4 digits) -> show stock detail only
-        if (/^\d{4}$/.test(query.trim())) {
-            await loadStockDetail(query.trim());
-            document.getElementById('searchResults').innerHTML = '<div class="loading">請查看上方個股新聞面板</div>';
-            document.getElementById('searchTitle').textContent = `個股: ${query.trim()}`;
-            return;
-        }
+    // Name
+    if(!window._sm){const r=await fetch('/api/stocks');window._sm={};(await r.json()).forEach(s=>window._sm[s.code]=s.name);}
+    document.getElementById('stockName').textContent=window._sm[code]||'';
+    updateWatchBtn();
 
-        // Text search via FTS5
-        const res = await fetch(`/api/news/search?q=${encodeURIComponent(query)}`);
-        const news = await res.json();
-        renderNewsList('searchResults', news);
-        document.getElementById('searchTitle').textContent = `搜尋: ${query} (${news.length} 筆)`;
-    }
+    await reloadChart();
+    loadFundamentals(code);
+}
 
-    // Load stock detail (chart + news)
-    async function loadStockDetail(code) {
-        document.getElementById('stockPanel').style.display = 'block';
-        document.getElementById('stockNewsPanel').style.display = 'block';
-        document.getElementById('stockCode').textContent = code;
-        document.getElementById('stockName').textContent = '';
-        document.getElementById('stockPanel').scrollIntoView({ behavior: 'smooth' });
+async function reloadChart(){
+    if(!currentCode)return;
+    const period=document.getElementById('selPeriod').value;
+    const days=document.getElementById('numDays').value;
+    const r=await fetch(`/api/stock/${currentCode}/kline?period=${period}&days=${days}`);
+    lastData=await r.json();
+    renderChart(lastData);
+}
 
-        // Load stock name
-        if (!window._stockMap) {
-            const sRes = await fetch('/api/stocks');
-            const stocks = await sRes.json();
-            window._stockMap = {};
-            stocks.forEach(s => window._stockMap[s.code] = s.name);
-        }
-        document.getElementById('stockName').textContent = window._stockMap[code] || '';
+function closeStock(){ document.getElementById('stockPanel').style.display='none'; currentCode=''; }
+function openYahooNews(){ window.open(`https://tw.news.search.yahoo.com/search?p=${currentCode}&fr=finance`,'_blank'); }
 
-        // Load kline
-        const kRes = await fetch(`/api/stock/${code}/kline?days=120`);
-        const kline = await kRes.json();
-        renderChart(kline);
+// --- Chart ---
+function computeMA(data,period){
+    return data.map((d,i)=>{
+        if(i<period-1)return null;
+        const avg=data.slice(i-period+1,i+1).reduce((s,x)=>s+x.close,0)/period;
+        return{time:d.time,value:Math.round(avg*100)/100};
+    }).filter(Boolean);
+}
+function computeMACD(data){
+    const c=data.map(d=>d.close);
+    const ema=(arr,p)=>{const k=2/(p+1);let r=[arr[0]];for(let i=1;i<arr.length;i++)r.push(arr[i]*k+r[i-1]*(1-k));return r;};
+    const e12=ema(c,12),e26=ema(c,26),dif=e12.map((v,i)=>v-e26[i]),dea=ema(dif,9);
+    return{dif:data.map((d,i)=>({time:d.time,value:+(dif[i]).toFixed(2)})),
+           dea:data.map((d,i)=>({time:d.time,value:+(dea[i]).toFixed(2)})),
+           hist:data.map((d,i)=>({time:d.time,value:+((dif[i]-dea[i])*2).toFixed(2)}))};
+}
 
-        // Load stock news
-        const nRes = await fetch(`/api/stock/${code}/news`);
-        const news = await nRes.json();
-        renderNewsList('stockNewsList', news);
-    }
+function renderChart(data){
+    const container=document.getElementById('chartContainer');
+    container.innerHTML='';
+    if(!data||data.length===0){container.innerHTML='<div class="loading">無K線資料</div>';return;}
 
-    // Render K-line chart
-    function renderChart(data) {
-        const container = document.getElementById('chartContainer');
-        container.innerHTML = '';
-
-        if (!data || data.length === 0) {
-            container.innerHTML = '<div class="loading">無 K 線資料</div>';
-            return;
-        }
-
-        chart = LightweightCharts.createChart(container, {
-            width: container.clientWidth,
-            height: 350,
-            layout: { background: { color: '#1a1d28' }, textColor: '#8b9dc3' },
-            grid: { vertLines: { color: '#2a2d38' }, horzLines: { color: '#2a2d38' } },
-            crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-            timeScale: { borderColor: '#2a2d38' },
-        });
-
-        candleSeries = chart.addCandlestickSeries({
-            upColor: '#ef5350', downColor: '#26a69a',
-            borderUpColor: '#ef5350', borderDownColor: '#26a69a',
-            wickUpColor: '#ef5350', wickDownColor: '#26a69a',
-        });
-
-        const chartData = data.map(d => ({
-            time: d.date, open: d.open, high: d.high, low: d.low, close: d.close,
-        }));
-        candleSeries.setData(chartData);
-
-        volumeSeries = chart.addHistogramSeries({
-            color: '#4fc3f7', priceFormat: { type: 'volume' },
-            priceScaleId: '', scaleMargins: { top: 0.85, bottom: 0 },
-        });
-        volumeSeries.setData(data.map(d => ({
-            time: d.date, value: d.volume, color: d.close >= d.open ? '#ef535080' : '#26a69a80',
-        })));
-
-        chart.timeScale().fitContent();
-
-        // Responsive resize
-        new ResizeObserver(() => {
-            chart.applyOptions({ width: container.clientWidth });
-        }).observe(container);
-    }
-
-    // Render news list
-    function renderNewsList(containerId, news) {
-        const container = document.getElementById(containerId);
-        if (!news || news.length === 0) {
-            container.innerHTML = '<div class="loading">無資料</div>';
-            return;
-        }
-        container.innerHTML = news.map(n => `
-            <div class="news-item" onclick="window.open('${n.url}', '_blank')">
-                <div class="title">
-                    <span class="tag tag-${n.source}">${n.source.toUpperCase()}</span>
-                    ${n.title}
-                </div>
-                <div class="meta">
-                    <span>${n.category || ''}</span>
-                    <span>${n.published_at || ''}</span>
-                </div>
-            </div>
-        `).join('');
-    }
-
-    // Trigger scrape
-    async function triggerScrape() {
-        document.getElementById('statusText').textContent = '正在抓取新聞（背景執行中）...';
-        try {
-            const res = await fetch('/api/scrape', { method: 'POST' });
-            const data = await res.json();
-            document.getElementById('statusText').textContent =
-                `已啟動抓取任務 (${data.source})，請稍後重新整理查看新聞`;
-            // Reload news after a delay
-            setTimeout(() => loadLatestNews(), 15000);
-        } catch (e) {
-            document.getElementById('statusText').textContent = `抓取失敗: ${e.message}`;
-        }
-    }
-
-    // Show scheduler status
-    async function showScheduler() {
-        const res = await fetch('/api/scheduler/status');
-        const data = await res.json();
-        const info = data.jobs.map(j => `${j.name}\n下次執行: ${j.next_run}`).join('\n\n');
-        alert(`排程狀態: ${data.running ? '運行中' : '已停止'}\n\n${info || '無排程'}`);
-        document.getElementById('schedulerInfo').textContent =
-            data.jobs.map(j => `下次: ${j.next_run}`).join(' | ');
-    }
-
-    // Event listeners
-    document.getElementById('searchInput').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') searchNews(e.target.value);
+    const sub=document.querySelector('input[name=sub]:checked').value;
+    chart=LightweightCharts.createChart(container,{
+        width:container.clientWidth,height:380,
+        layout:{background:{color:'#1a1d28'},textColor:'#8b9dc3'},
+        grid:{vertLines:{color:'#2a2d38'},horzLines:{color:'#2a2d38'}},
+        crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
+        timeScale:{borderColor:'#2a2d38'},
     });
 
-    // Init
-    loadLatestNews();
-    loadHotStocks();
-    showScheduler();
-    </script>
+    const cd=data.map(d=>({time:d.date,open:d.open,high:d.high,low:d.low,close:d.close}));
+    const cs=chart.addCandlestickSeries({upColor:'#ef5350',downColor:'#26a69a',borderUpColor:'#ef5350',borderDownColor:'#26a69a',wickUpColor:'#ef5350',wickDownColor:'#26a69a'});
+    cs.setData(cd);
+
+    // MA
+    maLines.forEach((m,i)=>{
+        if(!m.on)return;
+        const s=chart.addLineSeries({color:MA_COLORS[i],lineWidth:1});
+        s.setData(computeMA(cd,m.period));
+    });
+
+    // Sub chart
+    if(sub==='vol'){
+        const vs=chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'sub',scaleMargins:{top:0.82,bottom:0}});
+        vs.setData(data.map(d=>({time:d.date,value:d.volume,color:d.close>=d.open?'#ef535060':'#26a69a60'})));
+    } else {
+        const macd=computeMACD(cd);
+        const hs=chart.addHistogramSeries({priceScaleId:'sub',scaleMargins:{top:0.82,bottom:0}});
+        hs.setData(macd.hist.map(d=>({time:d.time,value:d.value,color:d.value>=0?'#ef535080':'#26a69a80'})));
+        const ds=chart.addLineSeries({color:'#ffeb3b',lineWidth:1,priceScaleId:'sub',scaleMargins:{top:0.82,bottom:0}});
+        ds.setData(macd.dif);
+        const de=chart.addLineSeries({color:'#2196f3',lineWidth:1,priceScaleId:'sub',scaleMargins:{top:0.82,bottom:0}});
+        de.setData(macd.dea);
+    }
+
+    chart.timeScale().fitContent();
+    new ResizeObserver(()=>chart.applyOptions({width:container.clientWidth})).observe(container);
+}
+
+// --- Fundamentals ---
+async function loadFundamentals(code){
+    const [revRes,epsRes]=await Promise.all([fetch(`/api/stock/${code}/revenue`),fetch(`/api/stock/${code}/eps`)]);
+    const rev=await revRes.json(), eps=await epsRes.json();
+    renderLineChart('revenueChart',rev.map(r=>({label:r.year,value:r.revenue/1e8})),'億');
+    renderLineChart('epsChart',eps.map(r=>({label:r.year,value:r.eps})),'元');
+}
+
+function renderLineChart(id,data,unit){
+    const el=document.getElementById(id); el.innerHTML='';
+    if(!data||data.length===0){el.innerHTML='<div class="loading">無資料</div>';return;}
+    const c=LightweightCharts.createChart(el,{width:el.clientWidth,height:170,
+        layout:{background:{color:'#14161e'},textColor:'#8b9dc3'},
+        grid:{vertLines:{color:'#1f222d'},horzLines:{color:'#1f222d'}},
+        timeScale:{borderColor:'#2a2d38'},rightPriceScale:{borderColor:'#2a2d38'}});
+    const s=c.addLineSeries({color:'#4fc3f7',lineWidth:2});
+    s.setData(data.map(d=>({time:d.label+'-01-01',value:d.value})));
+    c.timeScale().fitContent();
+}
+
+// --- Watchlist ---
+async function loadWatchlist(){
+    const r=await fetch('/api/watchlist');
+    const list=await r.json();
+    const p=document.getElementById('watchlistPanel');
+    const il=document.getElementById('watchlistInline');
+    if(!list.length){p.innerHTML='<div class="loading">無自選股</div>';il.textContent='';return;}
+    p.innerHTML=list.map(s=>`<div class="stock-item" onclick="loadStock('${s.stock_code}')">
+        <div class="info"><span class="code">${s.stock_code}</span><span class="name">${s.stock_name}</span></div>
+        <span class="del" onclick="event.stopPropagation();delWatch('${s.stock_code}')">✕</span>
+    </div>`).join('');
+    il.textContent=list.map(s=>s.stock_code).join(', ');
+}
+async function toggleWatch(){
+    if(!currentCode)return;
+    const list=await(await fetch('/api/watchlist')).json();
+    const exists=list.some(s=>s.stock_code===currentCode);
+    if(exists){await fetch(`/api/watchlist/${currentCode}`,{method:'DELETE'});}
+    else{await fetch(`/api/watchlist/${currentCode}?name=${encodeURIComponent(window._sm?.[currentCode]||'')}`,{method:'POST'});}
+    loadWatchlist(); updateWatchBtn();
+}
+async function delWatch(code){await fetch(`/api/watchlist/${code}`,{method:'DELETE'});loadWatchlist();}
+async function updateWatchBtn(){
+    const list=await(await fetch('/api/watchlist')).json();
+    const exists=list.some(s=>s.stock_code===currentCode);
+    document.getElementById('btnWatch').textContent=exists?'★ 已加入':'☆ 加入自選';
+    document.getElementById('btnWatch').style.color=exists?'#ffeb3b':'';
+}
+
+// --- Hot Stocks ---
+async function loadHot(type='active'){
+    const r=await fetch(`/api/hot-stocks?type=${type}`);
+    const stocks=await r.json();
+    const p=document.getElementById('hotPanel');
+    if(!stocks.length){p.innerHTML='<div class="loading">無資料</div>';return;}
+    p.innerHTML=stocks.map(s=>`<div class="stock-item" onclick="document.getElementById('searchInput').value='${s.code}';loadStock('${s.code}')">
+        <div class="info"><span class="rank">#${s.rank}</span><span class="code">${s.code}</span><span class="name">${s.name}</span></div>
+    </div>`).join('');
+}
+
+// --- Init ---
+renderMASettings();
+loadWatchlist();
+loadHot();
+</script>
 </body>
 </html>
