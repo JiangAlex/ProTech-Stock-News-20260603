@@ -208,13 +208,14 @@
 
     // Trigger scrape
     async function triggerScrape() {
-        document.getElementById('statusText').textContent = '正在抓取新聞...';
+        document.getElementById('statusText').textContent = '正在抓取新聞（背景執行中）...';
         try {
             const res = await fetch('/api/scrape', { method: 'POST' });
             const data = await res.json();
             document.getElementById('statusText').textContent =
-                `抓取完成: UDN=${data.udn||0}, CTEE=${data.ctee||0}, Yahoo=${data.yahoo||0}, 標記=${data.tagged||0}`;
-            loadLatestNews();
+                `已啟動抓取任務 (${data.source})，請稍後重新整理查看新聞`;
+            // Reload news after a delay
+            setTimeout(() => loadLatestNews(), 15000);
         } catch (e) {
             document.getElementById('statusText').textContent = `抓取失敗: ${e.message}`;
         }

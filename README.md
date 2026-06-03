@@ -21,7 +21,7 @@ pip install -r requirements.txt
 
 # 啟動 server
 python -m src.server
-# 瀏覽器開啟 http://localhost:8000
+# 瀏覽器開啟 http://localhost:8020
 ```
 
 ## API Endpoints

@@ -1,7 +1,7 @@
 """FastAPI server for ProTech-Stock-News."""
 
 import logging
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, BackgroundTasks
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
@@ -73,8 +73,14 @@ def api_stock_list():
 
 
 @app.post("/api/scrape")
-def api_scrape(source: str = Query("all")):
-    """Manually trigger scraping. source: udn, ctee, yahoo, all."""
+def api_scrape(source: str = Query("all"), background_tasks: BackgroundTasks = None):
+    """Manually trigger scraping (runs in background)."""
+    background_tasks.add_task(_do_scrape, source)
+    return {"status": "started", "source": source}
+
+
+def _do_scrape(source):
+    """Background scrape task."""
     results = {}
 
     if source in ("all", "udn"):
