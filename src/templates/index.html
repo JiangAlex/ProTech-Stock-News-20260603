@@ -173,6 +173,7 @@
         document.getElementById('stockPanel').style.display = 'block';
         document.getElementById('stockNewsPanel').style.display = 'block';
         document.getElementById('stockCode').textContent = code;
+        document.getElementById('stockPanel').scrollIntoView({ behavior: 'smooth' });
 
         // Load kline
         const kRes = await fetch(`/api/stock/${code}/kline?days=120`);
