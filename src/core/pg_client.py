@@ -93,38 +93,3 @@ def get_monthly_kline(stock_code, months=36):
         ]
     finally:
         conn.close()
-
-
-def get_annual_revenue(stock_code):
-    """Get annual revenue trend (sum of monthly_revenue by year)."""
-    conn = _conn()
-    try:
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        # Try both TWSE and TPEx tables
-        cur.execute("""
-            SELECT left(year_month, 4) AS year, sum(revenue) AS revenue
-            FROM (
-                SELECT year_month, revenue FROM monthly_revenue WHERE stock_code = %s
-                UNION ALL
-                SELECT year_month, revenue FROM monthly_revenue_tpex WHERE stock_code = %s
-            ) t
-            GROUP BY year ORDER BY year
-        """, (stock_code, stock_code))
-        return [{"year": r["year"], "revenue": float(r["revenue"] or 0)} for r in cur.fetchall()]
-    finally:
-        conn.close()
-
-
-def get_cumulative_eps(stock_code):
-    """Get annual net profit (revenue * aftertax_margin) from quarterly_profit."""
-    conn = _conn()
-    try:
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("""
-            SELECT year, sum(revenue * aftertax_margin / 100) AS net_profit
-            FROM quarterly_profit WHERE stock_code = %s
-            GROUP BY year ORDER BY year
-        """, (stock_code,))
-        return [{"year": str(r["year"]), "eps": round(float(r["net_profit"] or 0), 2)} for r in cur.fetchall()]
-    finally:
-        conn.close()

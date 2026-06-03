@@ -7,9 +7,8 @@ from pathlib import Path
 from src.core.database import init_db, get_watchlist, add_watchlist, remove_watchlist
 from src.core.pg_client import (
     get_all_stocks, get_daily_kline, get_weekly_kline, get_monthly_kline,
-    get_annual_revenue, get_cumulative_eps,
 )
-from src.services.yahoo_service import fetch_hot_stocks
+from src.services.yahoo_service import fetch_hot_stocks, fetch_revenue, fetch_eps
 
 app = FastAPI(title="ProTech Stock Dashboard", version="2.0.0")
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -43,12 +42,12 @@ def api_kline(code: str, period: str = Query("daily"), days: int = Query(120, le
 
 @app.get("/api/stock/{code}/revenue")
 def api_revenue(code: str):
-    return get_annual_revenue(code)
+    return fetch_revenue(code)
 
 
 @app.get("/api/stock/{code}/eps")
 def api_eps(code: str):
-    return get_cumulative_eps(code)
+    return fetch_eps(code)
 
 
 # --- Hot stocks ---
