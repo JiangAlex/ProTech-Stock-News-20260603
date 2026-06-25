@@ -100,7 +100,7 @@
         <!-- Fundamental charts -->
         <div class="fund-charts" id="fundCharts">
             <div class="fund-chart"><h3>年度營收走勢</h3><div id="revenueChart" style="height:170px"></div></div>
-            <div class="fund-chart"><h3>累計 EPS</h3><div id="epsChart" style="height:170px"></div></div>
+            <div class="fund-chart"><h3>歷年股利</h3><div id="dividendChart" style="height:170px"></div></div>
         </div>
     </div>
 
@@ -110,17 +110,22 @@
         <div class="panel-body" id="watchlistPanel"><div class="loading">無自選股</div></div>
     </div>
 
-    <!-- Hot Stocks -->
+    <!-- Hot / Rank Panel -->
     <div class="panel">
         <div class="panel-header">
-            <h2>🔥 社群爆紅榜</h2>
-            <div>
+            <h2 id="listPanelTitle">🔥 社群爆紅榜</h2>
+            <div id="listPanelBtns">
                 <button class="btn btn-p" onclick="loadHot('active')" style="font-size:10px;padding:3px 6px;">瀏覽</button>
                 <button class="btn btn-s" onclick="loadHot('trending')" style="font-size:10px;padding:3px 6px;">激增</button>
                 <button class="btn btn-s" onclick="loadHot('search')" style="font-size:10px;padding:3px 6px;">搜尋</button>
             </div>
         </div>
-        <div class="panel-body" id="hotPanel"><div class="loading">載入中...</div></div>
+        <div style="display:flex;gap:0;border-bottom:1px solid #2a2d38;">
+            <button class="btn btn-s" onclick="loadHot()" id="tabHot" style="flex:1;border-radius:0;border:none;border-bottom:2px solid #4fc3f7;">爆紅榜</button>
+            <button class="btn btn-s" onclick="loadRank('up','all')" id="tabUp" style="flex:1;border-radius:0;border:none;">漲幅</button>
+            <button class="btn btn-s" onclick="loadRank('down','all')" id="tabDown" style="flex:1;border-radius:0;border:none;">跌幅</button>
+        </div>
+        <div class="panel-body" id="listPanel"><div class="loading">載入中...</div></div>
     </div>
 
     <!-- News Panel -->
@@ -253,10 +258,10 @@ function renderChart(data){
 
 // --- Fundamentals ---
 async function loadFundamentals(code){
-    const [revRes,epsRes]=await Promise.all([fetch(`/api/stock/${code}/revenue`),fetch(`/api/stock/${code}/eps`)]);
-    const rev=await revRes.json(), eps=await epsRes.json();
+    const [revRes,divRes]=await Promise.all([fetch(`/api/stock/${code}/revenue`),fetch(`/api/stock/${code}/dividend`)]);
+    const rev=await revRes.json(), div=await divRes.json();
     renderRevenueChart('revenueChart', rev);
-    renderLineChart('epsChart',eps.map(r=>({label:r.year,value:r.eps})),'元');
+    renderDividendChart('dividendChart', div);
 }
 
 function renderRevenueChart(id, data){
@@ -272,10 +277,12 @@ function renderRevenueChart(id, data){
     const c=LightweightCharts.createChart(el,{width:el.clientWidth,height:170,
         layout:{background:{color:'#14161e'},textColor:'#8b9dc3'},
         grid:{vertLines:{color:'#1f222d'},horzLines:{color:'#1f222d'}},
+        handleScroll:false,handleScale:false,
         timeScale:{borderColor:'#2a2d38'},rightPriceScale:{borderColor:'#2a2d38'}});
 
+    const currentYear = new Date().getFullYear().toString();
     yearKeys.forEach((yr,i)=>{
-        const s=c.addLineSeries({color:colors[i%colors.length],lineWidth:2,title:yr,lastValueVisible:false,priceLineVisible:false});
+        const s=c.addLineSeries({color:colors[i%colors.length],lineWidth:2,title:yr,lastValueVisible:false,priceLineVisible:false,lineStyle:yr===currentYear?0:2});
         // Use a fixed base year so all lines align on same x (month)
         const sorted=years[yr].sort((a,b)=>a.month-b.month);
         s.setData(sorted.map(d=>({time:`2000-${String(d.month).padStart(2,'0')}-01`,value:d.revenue/1e8})));
@@ -283,15 +290,17 @@ function renderRevenueChart(id, data){
     c.timeScale().fitContent();
 }
 
-function renderLineChart(id,data,unit){
+function renderDividendChart(id,data){
     const el=document.getElementById(id); el.innerHTML='';
     if(!data||data.length===0){el.innerHTML='<div class="loading">無資料</div>';return;}
     const c=LightweightCharts.createChart(el,{width:el.clientWidth,height:170,
         layout:{background:{color:'#14161e'},textColor:'#8b9dc3'},
         grid:{vertLines:{color:'#1f222d'},horzLines:{color:'#1f222d'}},
+        handleScroll:false,handleScale:false,
         timeScale:{borderColor:'#2a2d38'},rightPriceScale:{borderColor:'#2a2d38'}});
-    const s=c.addLineSeries({color:'#4fc3f7',lineWidth:2});
-    s.setData(data.map(d=>({time:d.label+'-01-01',value:d.value})));
+    const s=c.addHistogramSeries({color:'#4fc3f7',priceFormat:{type:'price',precision:2,minMove:0.01}});
+    const sorted=data.sort((a,b)=>a.year.localeCompare(b.year));
+    s.setData(sorted.map(d=>({time:d.year+'-07-01',value:d.cash+d.stock})));
     c.timeScale().fitContent();
 }
 
@@ -326,12 +335,37 @@ async function updateWatchBtn(){
 
 // --- Hot Stocks ---
 async function loadHot(type='active'){
+    const tabs={hot:'tabHot',up:'tabUp',down:'tabDown'};
+    Object.entries(tabs).forEach(([k,id])=>{document.getElementById(id).style.borderBottom=k==='hot'?'2px solid #4fc3f7':'none';});
+    document.getElementById('listPanelTitle').textContent='🔥 社群爆紅榜';
+    document.getElementById('listPanelBtns').innerHTML=`<button class="btn ${type==='active'?'btn-p':'btn-s'}" onclick="loadHot('active')" style="font-size:10px;padding:3px 6px;">瀏覽</button><button class="btn ${type==='trending'?'btn-p':'btn-s'}" onclick="loadHot('trending')" style="font-size:10px;padding:3px 6px;">激增</button><button class="btn ${type==='search'?'btn-p':'btn-s'}" onclick="loadHot('search')" style="font-size:10px;padding:3px 6px;">搜尋</button>`;
+    const p=document.getElementById('listPanel');
+    p.innerHTML='<div class="loading">載入中...</div>';
     const r=await fetch(`/api/hot-stocks?type=${type}`);
     const stocks=await r.json();
-    const p=document.getElementById('hotPanel');
     if(!stocks.length){p.innerHTML='<div class="loading">無資料</div>';return;}
     p.innerHTML=stocks.map(s=>`<div class="stock-item" onclick="document.getElementById('searchInput').value='${s.code}';loadStock('${s.code}')">
         <div class="info"><span class="rank">#${s.rank}</span><span class="code">${s.code}</span><span class="name">${s.name}</span></div>
+    </div>`).join('');
+}
+
+// --- Rank ---
+async function loadRank(direction='up',market='all',histDate=''){
+    const tab=direction;
+    const tabs={hot:'tabHot',up:'tabUp',down:'tabDown'};
+    Object.entries(tabs).forEach(([k,id])=>{document.getElementById(id).style.borderBottom=k===tab?'2px solid #4fc3f7':'none';});
+    document.getElementById('listPanelTitle').textContent=direction==='up'?'📈 漲幅排行':'📉 跌幅排行';
+    const mkBtns=(d)=>`<button class="btn ${market==='all'?'btn-p':'btn-s'}" onclick="loadRank('${d}','all')" style="font-size:10px;padding:3px 6px;">合併</button><button class="btn ${market==='tse'?'btn-p':'btn-s'}" onclick="loadRank('${d}','tse')" style="font-size:10px;padding:3px 6px;">上市</button><button class="btn ${market==='otc'?'btn-p':'btn-s'}" onclick="loadRank('${d}','otc')" style="font-size:10px;padding:3px 6px;">上櫃</button> <input type="date" value="${histDate}" onchange="loadRank('${d}','${market}',this.value)" style="font-size:10px;padding:2px 4px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;">`;
+    document.getElementById('listPanelBtns').innerHTML=mkBtns(direction);
+    const p=document.getElementById('listPanel');
+    p.innerHTML='<div class="loading">載入中...</div>';
+    let url=histDate?`/api/rank/history?date=${histDate}&direction=${direction}&market=${market}`:`/api/rank?direction=${direction}&market=${market}`;
+    const r=await fetch(url);
+    const stocks=await r.json();
+    if(!stocks.length){p.innerHTML='<div class="loading">無資料</div>';return;}
+    p.innerHTML=stocks.map((s,i)=>`<div class="stock-item" onclick="document.getElementById('searchInput').value='${s.code}';loadStock('${s.code}')">
+        <div class="info"><span class="rank">#${s.rank||i+1}</span><span class="code">${s.code}</span><span class="name">${s.name}</span></div>
+        <span style="color:${direction==='up'?'#ef5350':'#26a69a'};font-size:12px;font-weight:600">${s.change_pct}</span>
     </div>`).join('');
 }
 

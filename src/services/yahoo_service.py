@@ -1,7 +1,6 @@
-"""Yahoo Stock: hot stocks, revenue, EPS data."""
+"""Yahoo Stock: hot stocks, revenue, dividend data."""
 
 import re
-from collections import defaultdict
 import requests
 from bs4 import BeautifulSoup
 
@@ -48,17 +47,53 @@ def fetch_revenue(stock_code):
     return data
 
 
-def fetch_eps(stock_code):
-    """Fetch quarterly EPS from Yahoo Stock, return cumulative by year."""
-    resp = requests.get(f"{BASE_URL}/quote/{stock_code}.TW/eps", headers=HEADERS, timeout=10)
+def fetch_dividend(stock_code):
+    """Fetch dividend history from Yahoo Stock /dividend page."""
+    resp = requests.get(f"{BASE_URL}/quote/{stock_code}.TW/dividend", headers=HEADERS, timeout=10)
     if resp.status_code != 200:
         return []
 
     soup = BeautifulSoup(resp.text, "lxml")
-    yearly = defaultdict(float)
+    results = []
     for li in soup.find_all("li"):
-        m = re.match(r"(20\d{2})\s*Q[1-4]\s+([\d.]+)", li.get_text(" ", strip=True))
+        text = li.get_text(" ", strip=True)
+        # Pattern: 發放年 所屬年 現金股利 股票股利(or -) ...
+        m = re.match(r"(20\d{2})\s+(20\d{2})\s+([\d.]+|-)\s+([\d.]+|-)", text)
         if m:
-            yearly[m.group(1)] += float(m.group(2))
+            cash = float(m.group(3)) if m.group(3) != '-' else 0
+            stock = float(m.group(4)) if m.group(4) != '-' else 0
+            results.append({"year": m.group(1), "belonging": m.group(2), "cash": cash, "stock": stock})
 
-    return [{"year": y, "eps": round(yearly[y], 2)} for y in sorted(yearly)]
+    return results
+
+
+def fetch_rank(direction="up", market="all"):
+    """Fetch 漲幅/跌幅排行. direction: up/down, market: all/tse/otc."""
+    exchange_map = {"tse": "TAI", "otc": "TWO"}
+    params = f"?exchange={exchange_map[market]}" if market in exchange_map else ""
+    resp = requests.get(f"{BASE_URL}/rank/change-{direction}{params}", headers=HEADERS, timeout=10)
+    if resp.status_code != 200:
+        return []
+
+    soup = BeautifulSoup(resp.text, "lxml")
+    results = []
+    for li in soup.find_all("li"):
+        text = li.get_text(" ", strip=True)
+        m = re.match(
+            r"(?:(\d+)\s+)?([\u4e00-\u9fff\w*\-]+)\s+(\d{4,5})\.(TW|TWO)\s+"
+            r"([\d,.]+)\s+([\d.]+)\s+([\d.]+%)",
+            text,
+        )
+        if m:
+            suffix = m.group(4)
+            results.append({
+                "rank": int(m.group(1)) if m.group(1) else len(results) + 1,
+                "name": m.group(2),
+                "code": m.group(3),
+                "market": "上市" if suffix == "TW" else "上櫃",
+                "price": float(m.group(5).replace(",", "")),
+                "change": float(m.group(6)),
+                "change_pct": m.group(7),
+            })
+
+    return results
