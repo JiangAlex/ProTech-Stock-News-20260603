@@ -1,10 +1,16 @@
 """FastAPI server for ProTech Stock Dashboard."""
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, UploadFile, File, Form
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
-from src.core.database import init_db, get_watchlist, add_watchlist, remove_watchlist, save_rank, get_rank_history
+from src.core.database import (
+    init_db, get_watchlist, add_watchlist, remove_watchlist, move_watchlist,
+    rename_group, delete_group, save_rank, get_rank_history, create_group,
+    get_all_groups, get_notes, add_note, delete_note, update_cost, sell_stock,
+    get_balance, update_balance,
+)
 from src.core.pg_client import (
     get_all_stocks, get_daily_kline, get_weekly_kline, get_monthly_kline,
 )
@@ -12,6 +18,9 @@ from src.services.yahoo_service import fetch_hot_stocks, fetch_revenue, fetch_di
 
 app = FastAPI(title="ProTech Stock Dashboard", version="2.0.0")
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+UPLOADS_DIR = Path(__file__).parent.parent / "data" / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 
 @app.on_event("startup")
@@ -22,17 +31,14 @@ def startup():
 
 
 async def _daily_rank_job():
-    """Run rank collection daily at 17:00."""
     import asyncio
     from datetime import datetime, timedelta
-
     while True:
         now = datetime.now()
         target = now.replace(hour=17, minute=0, second=0, microsecond=0)
         if now >= target:
             target += timedelta(days=1)
         await asyncio.sleep((target - now).total_seconds())
-
         from datetime import date
         for direction in ("up", "down"):
             for market in ("tse", "otc"):
@@ -93,22 +99,116 @@ def api_rank_history(date: str = Query(...), direction: str = Query("up"), marke
     return get_rank_history(date, direction, market)
 
 
-# --- Watchlist ---
+# --- Watchlist (static paths first) ---
 
 @app.get("/api/watchlist")
-def api_get_watchlist():
-    return get_watchlist()
+def api_get_watchlist(user: str = Query("default")):
+    return get_watchlist(user)
 
+
+@app.get("/api/watchlist/groups")
+def api_get_groups(user: str = Query("default")):
+    return get_all_groups(user)
+
+
+@app.post("/api/watchlist/group")
+def api_create_group(name: str = Query(...), user: str = Query("default")):
+    create_group(name, user)
+    return {"ok": True}
+
+
+@app.put("/api/watchlist/group/rename")
+def api_rename_group(old: str = Query(...), new: str = Query(...), user: str = Query("default")):
+    rename_group(old, new, user)
+    return {"ok": True}
+
+
+@app.delete("/api/watchlist/group/{group_name}")
+def api_delete_group(group_name: str, user: str = Query("default")):
+    delete_group(group_name, user)
+    return {"ok": True}
+
+
+@app.delete("/api/watchlist/notes/{note_id}")
+def api_delete_note(note_id: int, user: str = Query("default")):
+    img = delete_note(note_id, user)
+    if img:
+        p = UPLOADS_DIR / img.split("/")[-1]
+        if p.exists():
+            p.unlink()
+    return {"ok": True}
+
+
+# --- Balance ---
+
+@app.get("/api/watchlist/balance")
+def api_get_balance(user: str = Query("default")):
+    return {"balance": get_balance(user)}
+
+
+@app.post("/api/watchlist/balance")
+def api_update_balance(amount: float = Query(...), user: str = Query("default")):
+    update_balance(user, amount)
+    return {"ok": True, "balance": get_balance(user)}
+
+
+# --- Watchlist (dynamic paths) ---
 
 @app.post("/api/watchlist/{code}")
-def api_add_watchlist(code: str, name: str = Query("")):
-    add_watchlist(code, name)
+def api_add_watchlist(code: str, name: str = Query(""), group: str = Query("預設"),
+                      user: str = Query("default"), buy_price: float = Query(0),
+                      buy_shares: int = Query(0), buy_date: str = Query("")):
+    add_watchlist(code, name, group, user, buy_price, buy_shares, buy_date)
+    # Deduct from balance
+    if buy_price > 0 and buy_shares > 0:
+        cost = buy_price * buy_shares * 1000
+        update_balance(user, -cost)
     return {"ok": True}
 
 
 @app.delete("/api/watchlist/{code}")
-def api_remove_watchlist(code: str):
-    remove_watchlist(code)
+def api_remove_watchlist(code: str, user: str = Query("default")):
+    remove_watchlist(code, user)
+    return {"ok": True}
+
+
+@app.put("/api/watchlist/{code}/move")
+def api_move_watchlist(code: str, group: str = Query(...), user: str = Query("default")):
+    move_watchlist(code, group, user)
+    return {"ok": True}
+
+
+@app.put("/api/watchlist/{code}/cost")
+def api_update_cost(code: str, price: float = Query(...), shares: int = Query(...),
+                    date: str = Query(""), user: str = Query("default")):
+    update_cost(code, price, shares, date, user)
+    return {"ok": True}
+
+
+@app.post("/api/watchlist/{code}/sell")
+def api_sell_stock(code: str, price: float = Query(...), shares: int = Query(...),
+                   user: str = Query("default")):
+    sell_stock(code, shares, price, user)
+    return {"ok": True}
+
+
+@app.get("/api/watchlist/{code}/notes")
+def api_get_notes(code: str, user: str = Query("default")):
+    return get_notes(code, user)
+
+
+@app.post("/api/watchlist/{code}/notes")
+async def api_add_note(code: str, user: str = Query("default"),
+                       content: str = Form(""), image: UploadFile = File(None)):
+    image_path = ""
+    if image and image.filename:
+        import uuid
+        ext = Path(image.filename).suffix
+        fname = f"{code}_{uuid.uuid4().hex[:8]}{ext}"
+        dest = UPLOADS_DIR / fname
+        dest.write_bytes(await image.read())
+        image_path = f"/uploads/{fname}"
+    add_note(code, content, image_path, user)
     return {"ok": True}
 
 

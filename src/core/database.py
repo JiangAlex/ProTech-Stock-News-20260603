@@ -16,71 +16,245 @@ def get_connection():
 
 def init_db():
     conn = get_connection()
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS watchlist (
-        stock_code TEXT PRIMARY KEY,
-        stock_name TEXT,
-        created_at TEXT DEFAULT (datetime('now', 'localtime'))
-    )
-    """)
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS rank_history (
-        date TEXT NOT NULL,
-        direction TEXT NOT NULL,
-        market TEXT NOT NULL,
-        rank INTEGER NOT NULL,
-        code TEXT NOT NULL,
-        name TEXT,
-        price REAL,
-        change_val REAL,
-        change_pct TEXT,
-        PRIMARY KEY (date, direction, market, rank)
-    )
-    """)
+    tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+
+    # --- watchlist ---
+    if "watchlist" in tables:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(watchlist)").fetchall()]
+        if "user_id" not in cols:
+            conn.execute("ALTER TABLE watchlist ADD COLUMN user_id TEXT DEFAULT 'default'")
+        if "buy_price" not in cols:
+            conn.execute("ALTER TABLE watchlist ADD COLUMN buy_price REAL DEFAULT 0")
+        if "buy_shares" not in cols:
+            conn.execute("ALTER TABLE watchlist ADD COLUMN buy_shares INTEGER DEFAULT 0")
+        if "buy_date" not in cols:
+            conn.execute("ALTER TABLE watchlist ADD COLUMN buy_date TEXT DEFAULT ''")
+        conn.commit()
+    else:
+        conn.execute("""CREATE TABLE watchlist (
+            stock_code TEXT, stock_name TEXT, group_name TEXT DEFAULT '預設',
+            note TEXT DEFAULT '', user_id TEXT DEFAULT 'default',
+            buy_price REAL DEFAULT 0, buy_shares INTEGER DEFAULT 0, buy_date TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            PRIMARY KEY (stock_code, user_id))""")
+        conn.commit()
+
+    # --- watchlist_groups ---
+    if "watchlist_groups" in tables:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(watchlist_groups)").fetchall()]
+        if "user_id" not in cols:
+            conn.execute("CREATE TABLE watchlist_groups_new (group_name TEXT, user_id TEXT DEFAULT 'default', PRIMARY KEY (group_name, user_id))")
+            conn.execute("INSERT OR IGNORE INTO watchlist_groups_new SELECT group_name, 'default' FROM watchlist_groups")
+            conn.execute("DROP TABLE watchlist_groups")
+            conn.execute("ALTER TABLE watchlist_groups_new RENAME TO watchlist_groups")
+            conn.commit()
+    else:
+        conn.execute("CREATE TABLE watchlist_groups (group_name TEXT, user_id TEXT DEFAULT 'default', PRIMARY KEY (group_name, user_id))")
+        conn.commit()
+
+    # --- watchlist_notes ---
+    if "watchlist_notes" in tables:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(watchlist_notes)").fetchall()]
+        if "user_id" not in cols:
+            conn.execute("ALTER TABLE watchlist_notes ADD COLUMN user_id TEXT DEFAULT 'default'")
+            conn.commit()
+    else:
+        conn.execute("""CREATE TABLE watchlist_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, stock_code TEXT NOT NULL,
+            content TEXT DEFAULT '', image_path TEXT DEFAULT '',
+            user_id TEXT DEFAULT 'default',
+            created_at TEXT DEFAULT (datetime('now', 'localtime')))""")
+        conn.commit()
+
+    # --- user_balance ---
+    conn.execute("CREATE TABLE IF NOT EXISTS user_balance (user_id TEXT PRIMARY KEY, balance REAL DEFAULT 0)")
+    conn.commit()
+
+    # --- rank_history ---
+    conn.execute("""CREATE TABLE IF NOT EXISTS rank_history (
+        date TEXT NOT NULL, direction TEXT NOT NULL, market TEXT NOT NULL,
+        rank INTEGER NOT NULL, code TEXT NOT NULL, name TEXT,
+        price REAL, change_val REAL, change_pct TEXT,
+        PRIMARY KEY (date, direction, market, rank))""")
     conn.commit()
     conn.close()
 
 
-def get_watchlist():
+# --- Watchlist ---
+
+def get_watchlist(user_id="default"):
     conn = get_connection()
     try:
-        rows = conn.execute("SELECT * FROM watchlist ORDER BY created_at DESC").fetchall()
+        rows = conn.execute("SELECT * FROM watchlist WHERE user_id = ? ORDER BY created_at DESC", (user_id,)).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
-def add_watchlist(stock_code, stock_name=""):
+def add_watchlist(stock_code, stock_name="", group_name="預設", user_id="default", buy_price=0, buy_shares=0, buy_date=""):
     conn = get_connection()
     try:
         conn.execute(
-            "INSERT OR IGNORE INTO watchlist (stock_code, stock_name) VALUES (?, ?)",
-            (stock_code, stock_name)
-        )
+            "INSERT OR IGNORE INTO watchlist (stock_code, stock_name, group_name, user_id, buy_price, buy_shares, buy_date) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (stock_code, stock_name, group_name, user_id, buy_price, buy_shares, buy_date))
         conn.commit()
-        return conn.total_changes > 0
     finally:
         conn.close()
 
 
-def remove_watchlist(stock_code):
+def remove_watchlist(stock_code, user_id="default"):
     conn = get_connection()
     try:
-        conn.execute("DELETE FROM watchlist WHERE stock_code = ?", (stock_code,))
+        conn.execute("DELETE FROM watchlist WHERE stock_code = ? AND user_id = ?", (stock_code, user_id))
         conn.commit()
     finally:
         conn.close()
 
 
+def move_watchlist(stock_code, group_name, user_id="default"):
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE watchlist SET group_name = ? WHERE stock_code = ? AND user_id = ?", (group_name, stock_code, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_cost(stock_code, buy_price, buy_shares, buy_date, user_id="default"):
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE watchlist SET buy_price=?, buy_shares=?, buy_date=? WHERE stock_code=? AND user_id=?",
+                     (buy_price, buy_shares, buy_date, stock_code, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def sell_stock(stock_code, sell_shares, sell_price, user_id="default"):
+    """Sell shares: reduce buy_shares, add proceeds to balance. Remove if 0."""
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT buy_shares FROM watchlist WHERE stock_code=? AND user_id=?", (stock_code, user_id)).fetchone()
+        if not row:
+            return
+        remaining = row["buy_shares"] - sell_shares
+        proceeds = sell_price * sell_shares * 1000
+        if remaining <= 0:
+            conn.execute("DELETE FROM watchlist WHERE stock_code=? AND user_id=?", (stock_code, user_id))
+        else:
+            conn.execute("UPDATE watchlist SET buy_shares=? WHERE stock_code=? AND user_id=?", (remaining, stock_code, user_id))
+        # Update balance
+        conn.execute("INSERT OR IGNORE INTO user_balance (user_id, balance) VALUES (?, 0)", (user_id,))
+        conn.execute("UPDATE user_balance SET balance = balance + ? WHERE user_id = ?", (proceeds, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# --- Notes ---
+
+def get_notes(stock_code, user_id="default"):
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT * FROM watchlist_notes WHERE stock_code = ? AND user_id = ? ORDER BY created_at DESC", (stock_code, user_id)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def add_note(stock_code, content="", image_path="", user_id="default"):
+    conn = get_connection()
+    try:
+        conn.execute("INSERT INTO watchlist_notes (stock_code, content, image_path, user_id) VALUES (?, ?, ?, ?)", (stock_code, content, image_path, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_note(note_id, user_id="default"):
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT image_path FROM watchlist_notes WHERE id = ? AND user_id = ?", (note_id, user_id)).fetchone()
+        conn.execute("DELETE FROM watchlist_notes WHERE id = ? AND user_id = ?", (note_id, user_id))
+        conn.commit()
+        return row["image_path"] if row and row["image_path"] else ""
+    finally:
+        conn.close()
+
+
+# --- Groups ---
+
+def rename_group(old_name, new_name, user_id="default"):
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE watchlist SET group_name = ? WHERE group_name = ? AND user_id = ?", (new_name, old_name, user_id))
+        conn.execute("UPDATE watchlist_groups SET group_name = ? WHERE group_name = ? AND user_id = ?", (new_name, old_name, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_group(group_name, user_id="default"):
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM watchlist WHERE group_name = ? AND user_id = ?", (group_name, user_id))
+        conn.execute("DELETE FROM watchlist_groups WHERE group_name = ? AND user_id = ?", (group_name, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def create_group(group_name, user_id="default"):
+    conn = get_connection()
+    try:
+        conn.execute("INSERT OR IGNORE INTO watchlist_groups (group_name, user_id) VALUES (?, ?)", (group_name, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_all_groups(user_id="default"):
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT group_name FROM watchlist_groups WHERE user_id = ?", (user_id,)).fetchall()
+        return [r[0] for r in rows]
+    finally:
+        conn.close()
+
+
+# --- Balance ---
+
+def get_balance(user_id="default"):
+    conn = get_connection()
+    try:
+        conn.execute("INSERT OR IGNORE INTO user_balance (user_id, balance) VALUES (?, 0)", (user_id,))
+        conn.commit()
+        row = conn.execute("SELECT balance FROM user_balance WHERE user_id = ?", (user_id,)).fetchone()
+        return row["balance"] if row else 0
+    finally:
+        conn.close()
+
+
+def update_balance(user_id, amount):
+    """Add amount to balance (positive=deposit, negative=withdraw)."""
+    conn = get_connection()
+    try:
+        conn.execute("INSERT OR IGNORE INTO user_balance (user_id, balance) VALUES (?, 0)", (user_id,))
+        conn.execute("UPDATE user_balance SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# --- Rank ---
+
 def save_rank(date, direction, market, items):
-    """Save daily rank data. items: list of dicts from fetch_rank."""
     conn = get_connection()
     try:
         conn.execute("DELETE FROM rank_history WHERE date=? AND direction=? AND market=?", (date, direction, market))
         conn.executemany(
             "INSERT INTO rank_history (date,direction,market,rank,code,name,price,change_val,change_pct) VALUES (?,?,?,?,?,?,?,?,?)",
-            [(date, direction, market, i+1, s["code"], s["name"], s["price"], s["change"], s["change_pct"]) for i, s in enumerate(items)]
-        )
+            [(date, direction, market, i+1, s["code"], s["name"], s["price"], s["change"], s["change_pct"]) for i, s in enumerate(items)])
         conn.commit()
     finally:
         conn.close()
@@ -90,15 +264,9 @@ def get_rank_history(date, direction, market="all"):
     conn = get_connection()
     try:
         if market == "all":
-            rows = conn.execute(
-                "SELECT * FROM rank_history WHERE date=? AND direction=? ORDER BY rank",
-                (date, direction)
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM rank_history WHERE date=? AND direction=? ORDER BY rank", (date, direction)).fetchall()
         else:
-            rows = conn.execute(
-                "SELECT * FROM rank_history WHERE date=? AND direction=? AND market=? ORDER BY rank",
-                (date, direction, market)
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM rank_history WHERE date=? AND direction=? AND market=? ORDER BY rank", (date, direction, market)).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()

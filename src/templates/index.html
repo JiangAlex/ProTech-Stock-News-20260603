@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ProTech Stock Dashboard</title>
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
         body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e1e5ea}
@@ -30,7 +31,9 @@
         .panel-header h2{font-size:13px;color:#8b9dc3}
         .panel-body{max-height:450px;overflow-y:auto}
         .full-width{grid-column:1/-1}
-        .chart-container{width:100%;height:380px}
+        .chart-container{width:100%;display:flex;flex-direction:column}
+        .chart-main{width:100%;height:280px}
+        .chart-sub{width:100%;height:120px}
         .fund-charts{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px}
         .fund-chart{height:200px;background:#14161e;border-radius:6px;padding:8px}
         .fund-chart h3{font-size:11px;color:#8b9dc3;margin-bottom:4px}
@@ -54,6 +57,10 @@
     <div class="search-box">
         <input type="text" id="searchInput" placeholder="輸入股票代號 (如 2330)" />
         <button class="btn btn-p" onclick="doSearch()">查詢</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px;">
+        <span style="font-size:11px;color:#8b9dc3;">👤</span>
+        <input type="text" id="userInput" placeholder="使用者名稱" style="width:90px;padding:5px 8px;border-radius:6px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;" onchange="switchUser(this.value)">
     </div>
     <button class="btn btn-s" onclick="toggleSettings()">⚙ 設定</button>
 </div>
@@ -92,7 +99,10 @@
                 </select>
                 <input type="number" id="numDays" value="120" min="20" max="500" onchange="reloadChart()" style="width:50px;padding:4px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;text-align:center;">
                 <button class="btn btn-s" id="btnWatch" onclick="toggleWatch()">★ 加入自選</button>
-                <button class="btn btn-s" onclick="openYahooNews()">📰 新聞</button>
+                <button class="btn btn-s" id="btnDraw" onclick="toggleDraw()">✏ 畫線</button>
+                <button class="btn btn-s" id="btnText" onclick="toggleText()">T 文字</button>
+                <button class="btn btn-s" id="btnClearLines" onclick="clearDrawLines()" style="display:none;">🗑 清除</button>
+                <button class="btn btn-s" onclick="screenshotToNote()">📷 截圖</button>
                 <button class="btn btn-s" onclick="closeStock()">✕</button>
             </div>
         </div>
@@ -142,8 +152,19 @@
 <script>
 // --- State ---
 let chart = null, currentCode = '', lastData = [];
+let candleSeries = null;
+let currentUser = localStorage.getItem('protech_user') || 'default';
 const MA_COLORS = ['#ffeb3b','#2196f3','#e91e63','#66bb6a','#ff9800'];
 let maLines = [{period:5,on:true},{period:20,on:true},{period:60,on:true}];
+
+function U(url){return url+(url.includes('?')?'&':'?')+'user='+encodeURIComponent(currentUser);}
+function switchUser(name){
+    name=name.trim()||'default';
+    currentUser=name;
+    localStorage.setItem('protech_user',name);
+    document.getElementById('userInput').value=name==='default'?'':name;
+    loadWatchlist();
+}
 
 // --- Settings ---
 function toggleSettings(){ const p=document.getElementById('settingsPanel'); p.style.display=p.style.display==='none'?'block':'none'; }
@@ -193,7 +214,7 @@ async function reloadChart(){
     renderChart(lastData);
 }
 
-function closeStock(){ document.getElementById('stockPanel').style.display='none'; currentCode=''; document.getElementById('newsLink').href='https://tw.stock.yahoo.com/tw-market/'; document.getElementById('newsLink').textContent='開啟台股新聞 →'; }
+function closeStock(){ document.getElementById('stockPanel').style.display='none'; currentCode=''; drawLines=[];drawTexts=[]; document.getElementById('btnClearLines').style.display='none'; document.getElementById('newsLink').href='https://tw.stock.yahoo.com/tw-market/'; document.getElementById('newsLink').textContent='開啟台股新聞 →'; }
 function openYahooNews(){ window.open(`https://tw.news.search.yahoo.com/search?p=${currentCode}&fr=finance`,'_blank'); }
 
 // --- Chart ---
@@ -215,21 +236,20 @@ function computeMACD(data){
 
 function renderChart(data){
     const container=document.getElementById('chartContainer');
-    container.innerHTML='';
+    container.innerHTML='<div class="chart-main" id="chartMain"></div><div class="chart-sub" id="chartSub"></div>';
     if(!data||data.length===0){container.innerHTML='<div class="loading">無K線資料</div>';return;}
 
     const sub=document.querySelector('input[name=sub]:checked').value;
-    chart=LightweightCharts.createChart(container,{
-        width:container.clientWidth,height:380,
-        layout:{background:{color:'#1a1d28'},textColor:'#8b9dc3'},
-        grid:{vertLines:{color:'#2a2d38'},horzLines:{color:'#2a2d38'}},
-        crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
-        timeScale:{borderColor:'#2a2d38'},
-    });
+    const mainEl=document.getElementById('chartMain'), subEl=document.getElementById('chartSub');
+    const chartOpts=(el,h)=>({width:el.clientWidth,height:h,layout:{background:{color:'#1a1d28'},textColor:'#8b9dc3'},grid:{vertLines:{color:'#2a2d38'},horzLines:{color:'#2a2d38'}},crosshair:{mode:LightweightCharts.CrosshairMode.Normal},timeScale:{borderColor:'#2a2d38'}});
+
+    chart=LightweightCharts.createChart(mainEl,chartOpts(mainEl,280));
+    const subChart=LightweightCharts.createChart(subEl,{...chartOpts(subEl,120),timeScale:{borderColor:'#2a2d38',visible:true}});
 
     const cd=data.map(d=>({time:d.date,open:d.open,high:d.high,low:d.low,close:d.close}));
     const cs=chart.addCandlestickSeries({upColor:'#ef5350',downColor:'#26a69a',borderUpColor:'#ef5350',borderDownColor:'#26a69a',wickUpColor:'#ef5350',wickDownColor:'#26a69a'});
     cs.setData(cd);
+    candleSeries=cs;
 
     // MA
     maLines.forEach((m,i)=>{
@@ -238,22 +258,165 @@ function renderChart(data){
         s.setData(computeMA(cd,m.period));
     });
 
-    // Sub chart
+    // Sub chart content
     if(sub==='vol'){
-        const vs=chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'sub',scaleMargins:{top:0.82,bottom:0}});
-        vs.setData(data.map(d=>({time:d.date,value:d.volume,color:d.close>=d.open?'#ef535060':'#26a69a60'})));
+        const vs=subChart.addHistogramSeries({priceFormat:{type:'volume'},color:'#4fc3f760'});
+        vs.setData(data.map(d=>({time:d.date,value:d.volume,color:d.close>=d.open?'#ef535080':'#26a69a80'})));
     } else {
         const macd=computeMACD(cd);
-        const hs=chart.addHistogramSeries({priceScaleId:'sub',scaleMargins:{top:0.82,bottom:0}});
+        const hs=subChart.addHistogramSeries({});
         hs.setData(macd.hist.map(d=>({time:d.time,value:d.value,color:d.value>=0?'#ef535080':'#26a69a80'})));
-        const ds=chart.addLineSeries({color:'#ffeb3b',lineWidth:1,priceScaleId:'sub',scaleMargins:{top:0.82,bottom:0}});
+        const ds=subChart.addLineSeries({color:'#ffeb3b',lineWidth:1,lastValueVisible:false,priceLineVisible:false});
         ds.setData(macd.dif);
-        const de=chart.addLineSeries({color:'#2196f3',lineWidth:1,priceScaleId:'sub',scaleMargins:{top:0.82,bottom:0}});
+        const de=subChart.addLineSeries({color:'#2196f3',lineWidth:1,lastValueVisible:false,priceLineVisible:false});
         de.setData(macd.dea);
     }
 
+    // Sync time scales
     chart.timeScale().fitContent();
-    new ResizeObserver(()=>chart.applyOptions({width:container.clientWidth})).observe(container);
+    subChart.timeScale().fitContent();
+    let syncing=false;
+    chart.timeScale().subscribeVisibleLogicalRangeChange(r=>{if(syncing)return;syncing=true;subChart.timeScale().setVisibleLogicalRange(r);syncing=false;});
+    subChart.timeScale().subscribeVisibleLogicalRangeChange(r=>{if(syncing)return;syncing=true;chart.timeScale().setVisibleLogicalRange(r);syncing=false;});
+
+    // Sync crosshair
+    chart.subscribeCrosshairMove(p=>{if(p.time)subChart.setCrosshairPosition(NaN,p.time,subChart.timeScale());});
+    subChart.subscribeCrosshairMove(p=>{if(p.time)chart.setCrosshairPosition(NaN,p.time,chart.timeScale());});
+
+    new ResizeObserver(()=>{chart.applyOptions({width:mainEl.clientWidth});subChart.applyOptions({width:subEl.clientWidth});redrawCanvas();}).observe(container);
+    chart.timeScale().subscribeVisibleLogicalRangeChange(()=>redrawCanvas());
+}
+
+// --- Drawing ---
+let drawMode='', drawLines=[], drawTexts=[], drawCanvas=null;
+function toggleDraw(){
+    drawMode=drawMode==='line'?'':'line';
+    document.getElementById('btnDraw').style.background=drawMode==='line'?'#4fc3f7':'#2a2d38';
+    document.getElementById('btnDraw').style.color=drawMode==='line'?'#0f1117':'#e1e5ea';
+    document.getElementById('btnText').style.background=drawMode==='text'?'#4fc3f7':'#2a2d38';
+    document.getElementById('btnText').style.color=drawMode==='text'?'#0f1117':'#e1e5ea';
+    document.getElementById('btnClearLines').style.display=(drawLines.length||drawTexts.length)?'inline-block':'none';
+    const el=document.getElementById('chartMain');
+    if(el)el.style.cursor=drawMode?'crosshair':'';
+}
+function toggleText(){
+    drawMode=drawMode==='text'?'':'text';
+    document.getElementById('btnText').style.background=drawMode==='text'?'#4fc3f7':'#2a2d38';
+    document.getElementById('btnText').style.color=drawMode==='text'?'#0f1117':'#e1e5ea';
+    document.getElementById('btnDraw').style.background=drawMode==='line'?'#4fc3f7':'#2a2d38';
+    document.getElementById('btnDraw').style.color=drawMode==='line'?'#0f1117':'#e1e5ea';
+    const el=document.getElementById('chartMain');
+    if(el)el.style.cursor=drawMode?'crosshair':'';
+}
+function clearDrawLines(){drawLines=[];drawTexts=[];redrawCanvas();document.getElementById('btnClearLines').style.display='none';}
+function pixToLogical(x,y){
+    if(!chart||!candleSeries)return null;
+    const li=chart.timeScale().coordinateToLogical(x);
+    const price=candleSeries.coordinateToPrice(y);
+    if(li==null||price==null)return null;
+    return{li,price};
+}
+function logicalToPix(li,price){
+    if(!chart||!candleSeries)return null;
+    const x=chart.timeScale().logicalToCoordinate(li);
+    const y=candleSeries.priceToCoordinate(price);
+    if(x==null||y==null)return null;
+    return{x,y};
+}
+function ensureCanvas(){
+    const mainEl=document.getElementById('chartMain');
+    if(!mainEl)return null;
+    let c=mainEl.querySelector('.draw-canvas');
+    if(!c){
+        c=document.createElement('canvas');c.className='draw-canvas';
+        c.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;';
+        mainEl.style.position='relative';mainEl.appendChild(c);
+    }
+    c.width=mainEl.clientWidth;c.height=mainEl.clientHeight;
+    drawCanvas=c;return c;
+}
+function redrawCanvas(){
+    const c=ensureCanvas();if(!c)return;
+    const ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);
+    ctx.strokeStyle='#ff9800';ctx.lineWidth=2;
+    drawLines.forEach(l=>{
+        const p1=logicalToPix(l.li1,l.price1),p2=logicalToPix(l.li2,l.price2);
+        if(!p1||!p2)return;
+        ctx.beginPath();ctx.moveTo(p1.x,p1.y);ctx.lineTo(p2.x,p2.y);ctx.stroke();
+    });
+    ctx.font='12px sans-serif';ctx.fillStyle='#ffeb3b';
+    drawTexts.forEach(t=>{
+        const p=logicalToPix(t.li,t.price);
+        if(!p)return;
+        ctx.fillText(t.text,p.x,p.y);
+    });
+}
+function initDrawing(){
+    const el=document.getElementById('chartContainer');
+    let startPt=null;
+    el.addEventListener('pointerdown',e=>{
+        if(!drawMode)return;
+        const mainEl=document.getElementById('chartMain');
+        if(!mainEl||!mainEl.contains(e.target))return;
+        const rect=mainEl.getBoundingClientRect();
+        const x=e.clientX-rect.left,y=e.clientY-rect.top;
+        if(drawMode==='line'){
+            startPt=pixToLogical(x,y);
+            if(startPt)startPt._px={x,y};
+            e.preventDefault();e.stopPropagation();
+        } else if(drawMode==='text'){
+            const pt=pixToLogical(x,y);
+            if(!pt)return;
+            e.preventDefault();e.stopPropagation();
+            const txt=prompt('輸入文字標記');
+            if(txt&&txt.trim()){
+                drawTexts.push({li:pt.li,price:pt.price,text:txt.trim()});
+                document.getElementById('btnClearLines').style.display='inline-block';
+                redrawCanvas();
+            }
+        }
+    },true);
+    el.addEventListener('pointermove',e=>{
+        if(drawMode!=='line'||!startPt)return;
+        const mainEl=document.getElementById('chartMain');if(!mainEl)return;
+        const rect=mainEl.getBoundingClientRect();
+        const x=e.clientX-rect.left,y=e.clientY-rect.top;
+        redrawCanvas();
+        const c=drawCanvas;if(!c)return;
+        const ctx=c.getContext('2d');
+        ctx.strokeStyle='#ff980080';ctx.lineWidth=2;ctx.setLineDash([4,4]);
+        ctx.beginPath();ctx.moveTo(startPt._px.x,startPt._px.y);ctx.lineTo(x,y);ctx.stroke();ctx.setLineDash([]);
+    });
+    document.addEventListener('pointerup',e=>{
+        if(drawMode!=='line'||!startPt)return;
+        const mainEl=document.getElementById('chartMain');if(!mainEl)return;
+        const rect=mainEl.getBoundingClientRect();
+        const x=e.clientX-rect.left,y=e.clientY-rect.top;
+        if(Math.abs(x-startPt._px.x)+Math.abs(y-startPt._px.y)>5){
+            const endPt=pixToLogical(x,y);
+            if(endPt){
+                drawLines.push({li1:startPt.li,price1:startPt.price,li2:endPt.li,price2:endPt.price});
+                document.getElementById('btnClearLines').style.display='inline-block';
+            }
+        }
+        startPt=null;redrawCanvas();
+    });
+}
+
+// --- Screenshot ---
+async function screenshotToNote(){
+    if(!currentCode)return;
+    const el=document.getElementById('chartContainer');
+    const canvas=await html2canvas(el,{backgroundColor:'#1a1d28'});
+    canvas.toBlob(async blob=>{
+        const today=new Date().toISOString().slice(0,10);
+        const fd=new FormData();
+        fd.append('content',`K線截圖 ${today}`);
+        fd.append('image',blob,`${currentCode}_${today}.png`);
+        await fetch(U(`/api/watchlist/${currentCode}/notes`),{method:'POST',body:fd});
+        const noteEl=document.getElementById('notes-'+currentCode);
+        if(noteEl){noteEl.style.display='block';await renderNotes(currentCode);}
+    },'image/png');
 }
 
 // --- Fundamentals ---
@@ -306,32 +469,165 @@ function renderDividendChart(id,data){
 
 // --- Watchlist ---
 async function loadWatchlist(){
-    const r=await fetch('/api/watchlist');
+    const [r, gr, br]=await Promise.all([fetch(U('/api/watchlist')),fetch(U('/api/watchlist/groups')),fetch(U('/api/watchlist/balance'))]);
     const list=await r.json();
+    const emptyGroups=await gr.json();
+    const {balance}=await br.json();
     const p=document.getElementById('watchlistPanel');
     const il=document.getElementById('watchlistInline');
-    if(!list.length){p.innerHTML='<div class="loading">無自選股</div>';il.textContent='';return;}
-    p.innerHTML=list.map(s=>`<div class="stock-item" onclick="loadStock('${s.stock_code}')">
-        <div class="info"><span class="code">${s.stock_code}</span><span class="name">${s.stock_name}</span></div>
-        <span class="del" onclick="event.stopPropagation();delWatch('${s.stock_code}')">✕</span>
-    </div>`).join('');
+
+    // Fetch latest prices for cost calc
+    let prices={};
+    for(const s of list){
+        if(s.buy_price>0&&s.buy_shares>0&&!prices[s.stock_code]){
+            try{const kr=await fetch(`/api/stock/${s.stock_code}/kline?period=daily&days=1`);const kd=await kr.json();if(kd.length)prices[s.stock_code]=kd[kd.length-1].close;}catch(e){}
+        }
+    }
+
+    // Calc totals
+    let totalCost=0,totalMV=0;
+    list.forEach(s=>{
+        if(s.buy_price>0&&s.buy_shares>0){
+            totalCost+=s.buy_price*s.buy_shares*1000;
+            const cp=prices[s.stock_code]||s.buy_price;
+            totalMV+=cp*s.buy_shares*1000;
+        }
+    });
+    const totalPL=totalMV-totalCost;
+    const totalRet=totalCost>0?((totalPL/totalCost)*100).toFixed(2):0;
+    const totalAsset=balance+totalMV;
+
+    // Group by group_name
+    const groups={};
+    emptyGroups.forEach(g=>{if(!groups[g])groups[g]=[];});
+    list.forEach(s=>{const g=s.group_name||'預設';if(!groups[g])groups[g]=[];groups[g].push(s);});
+    const groupNames=Object.keys(groups);
     il.textContent=list.map(s=>s.stock_code).join(', ');
+
+    // Summary header
+    let html=`<div style="padding:8px 14px;border-bottom:1px solid #2a2d38;font-size:11px;display:flex;flex-wrap:wrap;gap:8px;background:#14161e;">
+        <span>💰 餘額: <b style="color:#4fc3f7">${Math.round(balance).toLocaleString()}</b></span>
+        <span>📊 市值: <b style="color:#66bb6a">${Math.round(totalMV).toLocaleString()}</b></span>
+        <span>💵 成本: <b>${Math.round(totalCost).toLocaleString()}</b></span>
+        <span>損益: <b style="color:${totalPL>=0?'#ef5350':'#26a69a'}">${totalPL>=0?'+':''}${Math.round(totalPL).toLocaleString()} (${totalRet}%)</b></span>
+        <span>🏦 總資產: <b style="color:#ffeb3b">${Math.round(totalAsset).toLocaleString()}</b></span>
+        <button class="btn btn-s" onclick="deposit()" style="font-size:9px;padding:1px 5px;">入金</button>
+    </div>`;
+
+    if(!groupNames.length){p.innerHTML=html+'<div class="loading">無自選股</div>';return;}
+
+    html+=`<div style="padding:6px 10px;border-bottom:1px solid #2a2d38;">
+        <button class="btn btn-s" onclick="addGroup()" style="font-size:10px;">＋ 新增分組</button>
+    </div>`;
+
+    html+=groupNames.map(g=>`
+        <div class="wl-group" data-group="${g}">
+            <div style="padding:6px 14px;background:#14161e;display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
+                <span style="font-size:12px;color:#ffb74d;font-weight:600;">▾ ${g} (${groups[g].length})</span>
+                <span style="display:flex;gap:4px;">
+                    <span class="del" onclick="event.stopPropagation();renameGroup('${g}')" title="重命名" style="color:#4fc3f7;font-size:11px;cursor:pointer;">✎</span>
+                    <span class="del" onclick="event.stopPropagation();delGroup('${g}')" title="刪除分組" style="color:#ef5350;font-size:11px;cursor:pointer;">🗑</span>
+                </span>
+            </div>
+            <div>${groups[g].map(s=>{
+                const cp=prices[s.stock_code]||0;
+                const mv=cp*s.buy_shares*1000;
+                const cost=s.buy_price*s.buy_shares*1000;
+                const pl=mv-cost;
+                const ret=cost>0?((pl/cost)*100).toFixed(1):'—';
+                const hasPos=s.buy_price>0&&s.buy_shares>0;
+                return `<div class="stock-item" style="flex-wrap:wrap;" onclick="loadStock('${s.stock_code}')">
+                <div class="info"><span class="code">${s.stock_code}</span><span class="name">${s.stock_name}</span></div>
+                <span style="display:flex;gap:4px;align-items:center;">
+                    ${hasPos?`<span style="font-size:10px;color:${pl>=0?'#ef5350':'#26a69a'};">${ret}%</span>`:''}
+                    <select onchange="event.stopPropagation();moveStock('${s.stock_code}',this.value)" style="font-size:10px;padding:1px 3px;border-radius:3px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;">
+                        ${groupNames.map(gn=>`<option value="${gn}"${gn===g?' selected':''}>${gn}</option>`).join('')}
+                    </select>
+                    <span onclick="event.stopPropagation();editCost('${s.stock_code}')" title="成本" style="color:#8b9dc3;font-size:11px;cursor:pointer;">💲</span>
+                    ${hasPos?`<span onclick="event.stopPropagation();sellStock('${s.stock_code}')" title="賣出" style="color:#ff9800;font-size:11px;cursor:pointer;">📤</span>`:''}
+                    <span onclick="event.stopPropagation();toggleNotes('${s.stock_code}')" title="備註" style="color:#8b9dc3;font-size:11px;cursor:pointer;">📝</span>
+                    <span class="del" onclick="event.stopPropagation();delWatch('${s.stock_code}')">✕</span>
+                </span>
+                ${hasPos?`<div onclick="event.stopPropagation()" style="width:100%;font-size:10px;color:#6b7a8d;padding:1px 0 0 32px;">現${cp} | 成本${s.buy_price}×${s.buy_shares}張 | 損益 <span style="color:${pl>=0?'#ef5350':'#26a69a'}">${pl>=0?'+':''}${Math.round(pl).toLocaleString()}</span></div>`:''}
+                <div id="notes-${s.stock_code}" style="display:none;width:100%;padding:4px 0 0 0;"></div>
+            </div>`;}).join('')}</div>
+        </div>`).join('');
+    p.innerHTML=html;
 }
 async function toggleWatch(){
     if(!currentCode)return;
-    const list=await(await fetch('/api/watchlist')).json();
+    const [list,allGroups]=await Promise.all([fetch(U('/api/watchlist')).then(r=>r.json()),fetch(U('/api/watchlist/groups')).then(r=>r.json())]);
     const exists=list.some(s=>s.stock_code===currentCode);
-    if(exists){await fetch(`/api/watchlist/${currentCode}`,{method:'DELETE'});}
-    else{await fetch(`/api/watchlist/${currentCode}?name=${encodeURIComponent(window._sm?.[currentCode]||'')}`,{method:'POST'});}
+    if(exists){await fetch(U(`/api/watchlist/${currentCode}`),{method:'DELETE'});}
+    else{
+        const groups=[...new Set([...allGroups,...list.map(s=>s.group_name||'預設'),'預設'])];
+        const g=prompt(`加入分組：\n${groups.map((n,i)=>`${i+1}. ${n}`).join('\n')}\n\n輸入分組名稱（或直接 Enter 用「預設」）`,'預設')||'預設';
+        const bp=prompt('買入價（可留空）','')||'0';
+        const bs=prompt('張數（可留空）','')||'0';
+        const bd=prompt('買入日期 如2026-06-29（可留空）','')||'';
+        await fetch(U(`/api/watchlist/${currentCode}?name=${encodeURIComponent(window._sm?.[currentCode]||'')}&group=${encodeURIComponent(g)}&buy_price=${bp}&buy_shares=${bs}&buy_date=${encodeURIComponent(bd)}`),{method:'POST'});
+    }
     loadWatchlist(); updateWatchBtn();
 }
-async function delWatch(code){await fetch(`/api/watchlist/${code}`,{method:'DELETE'});loadWatchlist();}
+async function delWatch(code){await fetch(U(`/api/watchlist/${code}`),{method:'DELETE'});loadWatchlist();}
 async function updateWatchBtn(){
-    const list=await(await fetch('/api/watchlist')).json();
+    const list=await(await fetch(U('/api/watchlist'))).json();
     const exists=list.some(s=>s.stock_code===currentCode);
     document.getElementById('btnWatch').textContent=exists?'★ 已加入':'☆ 加入自選';
     document.getElementById('btnWatch').style.color=exists?'#ffeb3b':'';
 }
+async function moveStock(code,group){await fetch(U(`/api/watchlist/${code}/move?group=${encodeURIComponent(group)}`),{method:'PUT'});loadWatchlist();}
+async function editCost(code){
+    const p=prompt('買入價','')||'0';
+    const s=prompt('張數','')||'0';
+    const d=prompt('買入日期 如2026-06-29','')||'';
+    await fetch(U(`/api/watchlist/${code}/cost?price=${p}&shares=${s}&date=${encodeURIComponent(d)}`),{method:'PUT'});
+    loadWatchlist();
+}
+async function sellStock(code){
+    const p=prompt('賣出價','')||'0';
+    const s=prompt('賣出張數','')||'0';
+    if(+p<=0||+s<=0)return;
+    await fetch(U(`/api/watchlist/${code}/sell?price=${p}&shares=${s}`),{method:'POST'});
+    loadWatchlist();
+}
+async function deposit(){
+    const a=prompt('入金金額','');
+    if(!a||+a===0)return;
+    await fetch(U(`/api/watchlist/balance?amount=${a}`),{method:'POST'});
+    loadWatchlist();
+}
+async function toggleNotes(code){
+    const el=document.getElementById('notes-'+code);
+    if(el.style.display!=='none'){el.style.display='none';return;}
+    el.style.display='block';
+    await renderNotes(code);
+}
+async function renderNotes(code){
+    const el=document.getElementById('notes-'+code);if(!el)return;
+    const notes=await fetch(U(`/api/watchlist/${code}/notes`)).then(r=>r.json());
+    el.innerHTML=`<div onclick="event.stopPropagation()" style="padding:4px 8px;">
+        <div style="display:flex;gap:4px;margin-bottom:6px;">
+            <input type="text" id="noteInput-${code}" placeholder="輸入備註..." style="flex:1;padding:3px 6px;font-size:11px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;">
+            <label class="btn btn-s" style="font-size:10px;padding:2px 6px;cursor:pointer;">📎<input type="file" accept="image/*" style="display:none;" onchange="uploadNote('${code}',this.files[0])"></label>
+            <button class="btn btn-s" onclick="submitNote('${code}')" style="font-size:10px;padding:2px 6px;">送出</button>
+        </div>
+        ${notes.map(n=>`<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:3px 0;border-top:1px solid #2a2d38;">
+            <div style="flex:1;font-size:11px;color:#ccc;">
+                ${n.content?`<span>${n.content.replace(/</g,'&lt;')}</span>`:''}
+                ${n.image_path?`<img src="${n.image_path}" style="max-width:120px;max-height:80px;border-radius:4px;display:block;margin-top:2px;cursor:pointer;" onclick="window.open('${n.image_path}','_blank')">`:''}
+                <div style="font-size:9px;color:#6b7a8d;margin-top:1px;">${n.created_at}</div>
+            </div>
+            <span onclick="delNote(${n.id},'${code}')" style="color:#ef5350;cursor:pointer;font-size:11px;">✕</span>
+        </div>`).join('')}
+    </div>`;
+}
+async function submitNote(code){const inp=document.getElementById('noteInput-'+code);const v=inp.value.trim();if(!v)return;const fd=new FormData();fd.append('content',v);await fetch(U(`/api/watchlist/${code}/notes`),{method:'POST',body:fd});renderNotes(code);}
+async function uploadNote(code,file){if(!file)return;const fd=new FormData();fd.append('content','');fd.append('image',file);await fetch(U(`/api/watchlist/${code}/notes`),{method:'POST',body:fd});renderNotes(code);}
+async function delNote(id,code){await fetch(U(`/api/watchlist/notes/${id}`),{method:'DELETE'});renderNotes(code);}
+async function addGroup(){const n=prompt('輸入新分組名稱');if(!n||!n.trim())return;await fetch(U(`/api/watchlist/group?name=${encodeURIComponent(n.trim())}`),{method:'POST'});loadWatchlist();}
+async function renameGroup(old){const n=prompt('新名稱',old);if(n&&n.trim()&&n!==old)await fetch(U(`/api/watchlist/group/rename?old=${encodeURIComponent(old)}&new=${encodeURIComponent(n.trim())}`),{method:'PUT'}).then(()=>loadWatchlist());}
+async function delGroup(g){if(confirm(`刪除分組「${g}」及其所有股票？`))await fetch(U(`/api/watchlist/group/${encodeURIComponent(g)}`),{method:'DELETE'}).then(()=>loadWatchlist());}
 
 // --- Hot Stocks ---
 async function loadHot(type='active'){
@@ -350,16 +646,25 @@ async function loadHot(type='active'){
 }
 
 // --- Rank ---
-async function loadRank(direction='up',market='all',histDate=''){
+function parseRankDate(s){
+    s=s.trim().replace(/[\/\.\s]/g,'-');
+    let m;
+    if((m=s.match(/^(\d{4})-?(\d{2})-?(\d{2})$/)))return `${m[1]}-${m[2]}-${m[3]}`;
+    if((m=s.match(/^(\d{2})-(\d{2})$/))){const y=new Date().getFullYear();return `${y}-${m[1]}-${m[2]}`;}
+    return '';
+}
+async function loadRank(direction='up',market='all',histDate){
+    histDate=histDate||'';
     const tab=direction;
     const tabs={hot:'tabHot',up:'tabUp',down:'tabDown'};
     Object.entries(tabs).forEach(([k,id])=>{document.getElementById(id).style.borderBottom=k===tab?'2px solid #4fc3f7':'none';});
     document.getElementById('listPanelTitle').textContent=direction==='up'?'📈 漲幅排行':'📉 跌幅排行';
-    const mkBtns=(d)=>`<button class="btn ${market==='all'?'btn-p':'btn-s'}" onclick="loadRank('${d}','all')" style="font-size:10px;padding:3px 6px;">合併</button><button class="btn ${market==='tse'?'btn-p':'btn-s'}" onclick="loadRank('${d}','tse')" style="font-size:10px;padding:3px 6px;">上市</button><button class="btn ${market==='otc'?'btn-p':'btn-s'}" onclick="loadRank('${d}','otc')" style="font-size:10px;padding:3px 6px;">上櫃</button> <input type="date" value="${histDate}" onchange="loadRank('${d}','${market}',this.value)" style="font-size:10px;padding:2px 4px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;">`;
+    const hd=histDate.replace(/'/g,'');
+    const mkBtns=(d)=>`<button class="btn ${market==='all'?'btn-p':'btn-s'}" onclick="loadRank('${d}','all','${hd}')" style="font-size:10px;padding:3px 6px;">合併</button><button class="btn ${market==='tse'?'btn-p':'btn-s'}" onclick="loadRank('${d}','tse','${hd}')" style="font-size:10px;padding:3px 6px;">上市</button><button class="btn ${market==='otc'?'btn-p':'btn-s'}" onclick="loadRank('${d}','otc','${hd}')" style="font-size:10px;padding:3px 6px;">上櫃</button> <input type="text" value="${hd}" placeholder="日期 如20260629" onkeydown="if(event.key==='Enter'){const v=parseRankDate(this.value);if(v)loadRank('${d}','${market}',v);else this.style.borderColor='#ef5350';}" style="font-size:10px;width:100px;padding:2px 4px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;">`;
     document.getElementById('listPanelBtns').innerHTML=mkBtns(direction);
     const p=document.getElementById('listPanel');
     p.innerHTML='<div class="loading">載入中...</div>';
-    let url=histDate?`/api/rank/history?date=${histDate}&direction=${direction}&market=${market}`:`/api/rank?direction=${direction}&market=${market}`;
+    let url=hd?`/api/rank/history?date=${hd}&direction=${direction}&market=${market}`:`/api/rank?direction=${direction}&market=${market}`;
     const r=await fetch(url);
     const stocks=await r.json();
     if(!stocks.length){p.innerHTML='<div class="loading">無資料</div>';return;}
@@ -370,9 +675,11 @@ async function loadRank(direction='up',market='all',histDate=''){
 }
 
 // --- Init ---
+document.getElementById('userInput').value=currentUser==='default'?'':currentUser;
 renderMASettings();
 loadWatchlist();
 loadHot();
+initDrawing();
 </script>
 </body>
 </html>
