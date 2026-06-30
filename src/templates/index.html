@@ -469,29 +469,35 @@ function renderDividendChart(id,data){
 
 // --- Watchlist ---
 async function loadWatchlist(){
-    const [r, gr, br]=await Promise.all([fetch(U('/api/watchlist')),fetch(U('/api/watchlist/groups')),fetch(U('/api/watchlist/balance'))]);
+    const [r, gr, br, tr]=await Promise.all([fetch(U('/api/watchlist')),fetch(U('/api/watchlist/groups')),fetch(U('/api/watchlist/balance')),fetch(U('/api/watchlist/trades'))]);
     const list=await r.json();
     const emptyGroups=await gr.json();
     const {balance}=await br.json();
+    const allTrades=await tr.json();
     const p=document.getElementById('watchlistPanel');
     const il=document.getElementById('watchlistInline');
 
-    // Fetch latest prices for cost calc
+    // Group trades by stock_code
+    const tradesByCode={};
+    allTrades.forEach(t=>{if(!tradesByCode[t.stock_code])tradesByCode[t.stock_code]=[];tradesByCode[t.stock_code].push(t);});
+
+    // Fetch latest prices
     let prices={};
     for(const s of list){
-        if(s.buy_price>0&&s.buy_shares>0&&!prices[s.stock_code]){
+        if(tradesByCode[s.stock_code]&&tradesByCode[s.stock_code].length>0&&!prices[s.stock_code]){
             try{const kr=await fetch(`/api/stock/${s.stock_code}/kline?period=daily&days=1`);const kd=await kr.json();if(kd.length)prices[s.stock_code]=kd[kd.length-1].close;}catch(e){}
         }
     }
 
-    // Calc totals
+    // Calc totals from trades
     let totalCost=0,totalMV=0;
     list.forEach(s=>{
-        if(s.buy_price>0&&s.buy_shares>0){
-            totalCost+=s.buy_price*s.buy_shares*1000;
-            const cp=prices[s.stock_code]||s.buy_price;
-            totalMV+=cp*s.buy_shares*1000;
-        }
+        const trades=tradesByCode[s.stock_code]||[];
+        let shares=0,cost=0;
+        trades.forEach(t=>{shares+=t.buy_shares;cost+=t.buy_price*t.buy_shares*1000;});
+        const cp=prices[s.stock_code]||0;
+        totalCost+=cost;
+        totalMV+=cp*shares*1000;
     });
     const totalPL=totalMV-totalCost;
     const totalRet=totalCost>0?((totalPL/totalCost)*100).toFixed(2):0;
@@ -530,12 +536,15 @@ async function loadWatchlist(){
                 </span>
             </div>
             <div>${groups[g].map(s=>{
+                const trades=tradesByCode[s.stock_code]||[];
+                let totalShares=0,totalCostS=0;
+                trades.forEach(t=>{totalShares+=t.buy_shares;totalCostS+=t.buy_price*t.buy_shares*1000;});
                 const cp=prices[s.stock_code]||0;
-                const mv=cp*s.buy_shares*1000;
-                const cost=s.buy_price*s.buy_shares*1000;
-                const pl=mv-cost;
-                const ret=cost>0?((pl/cost)*100).toFixed(1):'—';
-                const hasPos=s.buy_price>0&&s.buy_shares>0;
+                const mv=cp*totalShares*1000;
+                const pl=mv-totalCostS;
+                const ret=totalCostS>0?((pl/totalCostS)*100).toFixed(1):'—';
+                const avgCost=totalShares>0?(totalCostS/totalShares/1000).toFixed(2):0;
+                const hasPos=totalShares>0;
                 return `<div class="stock-item" style="flex-wrap:wrap;" onclick="loadStock('${s.stock_code}')">
                 <div class="info"><span class="code">${s.stock_code}</span><span class="name">${s.stock_name}</span></div>
                 <span style="display:flex;gap:4px;align-items:center;">
@@ -543,12 +552,13 @@ async function loadWatchlist(){
                     <select onchange="event.stopPropagation();moveStock('${s.stock_code}',this.value)" style="font-size:10px;padding:1px 3px;border-radius:3px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;">
                         ${groupNames.map(gn=>`<option value="${gn}"${gn===g?' selected':''}>${gn}</option>`).join('')}
                     </select>
-                    <span onclick="event.stopPropagation();editCost('${s.stock_code}')" title="成本" style="color:#8b9dc3;font-size:11px;cursor:pointer;">💲</span>
+                    <span onclick="event.stopPropagation();toggleTrades('${s.stock_code}')" title="交易明細" style="color:#8b9dc3;font-size:11px;cursor:pointer;">💲</span>
                     ${hasPos?`<span onclick="event.stopPropagation();sellStock('${s.stock_code}')" title="賣出" style="color:#ff9800;font-size:11px;cursor:pointer;">📤</span>`:''}
                     <span onclick="event.stopPropagation();toggleNotes('${s.stock_code}')" title="備註" style="color:#8b9dc3;font-size:11px;cursor:pointer;">📝</span>
                     <span class="del" onclick="event.stopPropagation();delWatch('${s.stock_code}')">✕</span>
                 </span>
-                ${hasPos?`<div onclick="event.stopPropagation()" style="width:100%;font-size:10px;color:#6b7a8d;padding:1px 0 0 32px;">現${cp} | 成本${s.buy_price}×${s.buy_shares}張 | 損益 <span style="color:${pl>=0?'#ef5350':'#26a69a'}">${pl>=0?'+':''}${Math.round(pl).toLocaleString()}</span></div>`:''}
+                ${hasPos?`<div onclick="event.stopPropagation()" style="width:100%;font-size:10px;color:#6b7a8d;padding:1px 0 0 32px;">現${cp} | 均價${avgCost} × ${totalShares}張 | 損益 <span style="color:${pl>=0?'#ef5350':'#26a69a'}">${pl>=0?'+':''}${Math.round(pl).toLocaleString()}</span></div>`:''}
+                <div id="trades-${s.stock_code}" style="display:none;width:100%;padding:4px 0 0 0;"></div>
                 <div id="notes-${s.stock_code}" style="display:none;width:100%;padding:4px 0 0 0;"></div>
             </div>`;}).join('')}</div>
         </div>`).join('');
@@ -562,10 +572,7 @@ async function toggleWatch(){
     else{
         const groups=[...new Set([...allGroups,...list.map(s=>s.group_name||'預設'),'預設'])];
         const g=prompt(`加入分組：\n${groups.map((n,i)=>`${i+1}. ${n}`).join('\n')}\n\n輸入分組名稱（或直接 Enter 用「預設」）`,'預設')||'預設';
-        const bp=prompt('買入價（可留空）','')||'0';
-        const bs=prompt('張數（可留空）','')||'0';
-        const bd=prompt('買入日期 如2026-06-29（可留空）','')||'';
-        await fetch(U(`/api/watchlist/${currentCode}?name=${encodeURIComponent(window._sm?.[currentCode]||'')}&group=${encodeURIComponent(g)}&buy_price=${bp}&buy_shares=${bs}&buy_date=${encodeURIComponent(bd)}`),{method:'POST'});
+        await fetch(U(`/api/watchlist/${currentCode}?name=${encodeURIComponent(window._sm?.[currentCode]||'')}&group=${encodeURIComponent(g)}`),{method:'POST'});
     }
     loadWatchlist(); updateWatchBtn();
 }
@@ -578,10 +585,50 @@ async function updateWatchBtn(){
 }
 async function moveStock(code,group){await fetch(U(`/api/watchlist/${code}/move?group=${encodeURIComponent(group)}`),{method:'PUT'});loadWatchlist();}
 async function editCost(code){
-    const p=prompt('買入價','')||'0';
-    const s=prompt('張數','')||'0';
-    const d=prompt('買入日期 如2026-06-29','')||'';
-    await fetch(U(`/api/watchlist/${code}/cost?price=${p}&shares=${s}&date=${encodeURIComponent(d)}`),{method:'PUT'});
+    const list=await fetch(U('/api/watchlist')).then(r=>r.json());
+    const item=list.find(s=>s.stock_code===code)||{};
+    const p=prompt('買入價',item.buy_price||'');if(p===null)return;
+    const s=prompt('張數',item.buy_shares||'');if(s===null)return;
+    const d=prompt('買入日期 如2026-06-29',item.buy_date||'');if(d===null)return;
+    await fetch(U(`/api/watchlist/${code}/cost?price=${p||0}&shares=${s||0}&date=${encodeURIComponent(d||'')}`),{method:'PUT'});
+    loadWatchlist();
+}
+async function toggleTrades(code){
+    const el=document.getElementById('trades-'+code);
+    if(el.style.display!=='none'){el.style.display='none';return;}
+    el.style.display='block';
+    await renderTrades(code);
+}
+async function renderTrades(code){
+    const el=document.getElementById('trades-'+code);if(!el)return;
+    const trades=await fetch(U(`/api/watchlist/${code}/trades`)).then(r=>r.json());
+    el.innerHTML=`<div onclick="event.stopPropagation()" style="padding:4px 8px;">
+        <div style="display:flex;gap:4px;margin-bottom:6px;">
+            <input type="number" id="tradePrice-${code}" placeholder="買入價" style="width:60px;padding:3px;font-size:11px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;">
+            <input type="number" id="tradeShares-${code}" placeholder="張數" style="width:45px;padding:3px;font-size:11px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;">
+            <input type="text" id="tradeDate-${code}" placeholder="日期" style="width:85px;padding:3px;font-size:11px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;">
+            <button class="btn btn-s" onclick="addNewTrade('${code}')" style="font-size:10px;padding:2px 6px;">新增</button>
+        </div>
+        ${trades.length?trades.map(t=>`<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;padding:2px 0;border-top:1px solid #2a2d38;font-size:10px;color:#ccc;">
+            <span>${t.buy_date||'—'}</span>
+            <span>$${t.buy_price} × ${t.buy_shares}張</span>
+            <span style="color:#6b7a8d;">= ${(t.buy_price*t.buy_shares*1000).toLocaleString()}</span>
+            <span onclick="delTrade(${t.id},'${code}')" style="color:#ef5350;cursor:pointer;margin-left:auto;">✕</span>
+        </div>`).join(''):'<div style="font-size:10px;color:#6b7a8d;">尚無交易記錄</div>'}
+    </div>`;
+}
+async function addNewTrade(code){
+    const p=document.getElementById('tradePrice-'+code).value;
+    const s=document.getElementById('tradeShares-'+code).value;
+    const d=document.getElementById('tradeDate-'+code).value;
+    if(!p||!s||+p<=0||+s<=0){alert('請輸入買入價和張數');return;}
+    await fetch(U(`/api/watchlist/${code}/trades?price=${p}&shares=${s}&date=${encodeURIComponent(d||'')}`),{method:'POST'});
+    await renderTrades(code);
+    loadWatchlist();
+}
+async function delTrade(id,code){
+    await fetch(U(`/api/watchlist/trades/${id}`),{method:'DELETE'});
+    await renderTrades(code);
     loadWatchlist();
 }
 async function sellStock(code){

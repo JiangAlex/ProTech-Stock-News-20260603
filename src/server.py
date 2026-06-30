@@ -9,7 +9,7 @@ from src.core.database import (
     init_db, get_watchlist, add_watchlist, remove_watchlist, move_watchlist,
     rename_group, delete_group, save_rank, get_rank_history, create_group,
     get_all_groups, get_notes, add_note, delete_note, update_cost, sell_stock,
-    get_balance, update_balance,
+    get_balance, update_balance, get_trades, get_all_trades, add_trade, delete_trade,
 )
 from src.core.pg_client import (
     get_all_stocks, get_daily_kline, get_weekly_kline, get_monthly_kline,
@@ -152,6 +152,19 @@ def api_update_balance(amount: float = Query(...), user: str = Query("default"))
     return {"ok": True, "balance": get_balance(user)}
 
 
+# --- Trades ---
+
+@app.get("/api/watchlist/trades")
+def api_get_all_trades(user: str = Query("default")):
+    return get_all_trades(user)
+
+
+@app.delete("/api/watchlist/trades/{trade_id}")
+def api_delete_trade(trade_id: int, user: str = Query("default")):
+    delete_trade(trade_id, user)
+    return {"ok": True}
+
+
 # --- Watchlist (dynamic paths) ---
 
 @app.post("/api/watchlist/{code}")
@@ -159,8 +172,9 @@ def api_add_watchlist(code: str, name: str = Query(""), group: str = Query("é è
                       user: str = Query("default"), buy_price: float = Query(0),
                       buy_shares: int = Query(0), buy_date: str = Query("")):
     add_watchlist(code, name, group, user, buy_price, buy_shares, buy_date)
-    # Deduct from balance
+    # Add trade record and deduct from balance
     if buy_price > 0 and buy_shares > 0:
+        add_trade(code, buy_price, buy_shares, buy_date, user)
         cost = buy_price * buy_shares * 1000
         update_balance(user, -cost)
     return {"ok": True}
@@ -189,6 +203,21 @@ def api_update_cost(code: str, price: float = Query(...), shares: int = Query(..
 def api_sell_stock(code: str, price: float = Query(...), shares: int = Query(...),
                    user: str = Query("default")):
     sell_stock(code, shares, price, user)
+    return {"ok": True}
+
+
+@app.get("/api/watchlist/{code}/trades")
+def api_get_trades(code: str, user: str = Query("default")):
+    return get_trades(code, user)
+
+
+@app.post("/api/watchlist/{code}/trades")
+def api_add_trade(code: str, price: float = Query(...), shares: int = Query(...),
+                  date: str = Query(""), user: str = Query("default")):
+    add_trade(code, price, shares, date, user)
+    # Deduct from balance
+    cost = price * shares * 1000
+    update_balance(user, -cost)
     return {"ok": True}
 
 

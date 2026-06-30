@@ -70,6 +70,17 @@ def init_db():
     conn.execute("CREATE TABLE IF NOT EXISTS user_balance (user_id TEXT PRIMARY KEY, balance REAL DEFAULT 0)")
     conn.commit()
 
+    # --- watchlist_trades ---
+    conn.execute("""CREATE TABLE IF NOT EXISTS watchlist_trades (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        stock_code TEXT NOT NULL,
+        user_id TEXT DEFAULT 'default',
+        buy_price REAL NOT NULL,
+        buy_shares INTEGER NOT NULL,
+        buy_date TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now', 'localtime')))""")
+    conn.commit()
+
     # --- rank_history ---
     conn.execute("""CREATE TABLE IF NOT EXISTS rank_history (
         date TEXT NOT NULL, direction TEXT NOT NULL, market TEXT NOT NULL,
@@ -131,21 +142,65 @@ def update_cost(stock_code, buy_price, buy_shares, buy_date, user_id="default"):
 
 
 def sell_stock(stock_code, sell_shares, sell_price, user_id="default"):
-    """Sell shares: reduce buy_shares, add proceeds to balance. Remove if 0."""
+    """Sell shares: remove from trades (FIFO), add proceeds to balance."""
     conn = get_connection()
     try:
-        row = conn.execute("SELECT buy_shares FROM watchlist WHERE stock_code=? AND user_id=?", (stock_code, user_id)).fetchone()
-        if not row:
-            return
-        remaining = row["buy_shares"] - sell_shares
+        rows = conn.execute("SELECT id, buy_shares FROM watchlist_trades WHERE stock_code=? AND user_id=? ORDER BY buy_date ASC, id ASC",
+                            (stock_code, user_id)).fetchall()
+        remaining = sell_shares
+        for row in rows:
+            if remaining <= 0:
+                break
+            if row["buy_shares"] <= remaining:
+                remaining -= row["buy_shares"]
+                conn.execute("DELETE FROM watchlist_trades WHERE id=?", (row["id"],))
+            else:
+                conn.execute("UPDATE watchlist_trades SET buy_shares=? WHERE id=?", (row["buy_shares"] - remaining, row["id"]))
+                remaining = 0
         proceeds = sell_price * sell_shares * 1000
-        if remaining <= 0:
-            conn.execute("DELETE FROM watchlist WHERE stock_code=? AND user_id=?", (stock_code, user_id))
-        else:
-            conn.execute("UPDATE watchlist SET buy_shares=? WHERE stock_code=? AND user_id=?", (remaining, stock_code, user_id))
-        # Update balance
         conn.execute("INSERT OR IGNORE INTO user_balance (user_id, balance) VALUES (?, 0)", (user_id,))
         conn.execute("UPDATE user_balance SET balance = balance + ? WHERE user_id = ?", (proceeds, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# --- Trades ---
+
+def get_trades(stock_code, user_id="default"):
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT * FROM watchlist_trades WHERE stock_code=? AND user_id=? ORDER BY buy_date DESC, id DESC",
+                            (stock_code, user_id)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_all_trades(user_id="default"):
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT * FROM watchlist_trades WHERE user_id=? ORDER BY stock_code, buy_date DESC",
+                            (user_id,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def add_trade(stock_code, buy_price, buy_shares, buy_date="", user_id="default"):
+    conn = get_connection()
+    try:
+        conn.execute("INSERT INTO watchlist_trades (stock_code, user_id, buy_price, buy_shares, buy_date) VALUES (?,?,?,?,?)",
+                     (stock_code, user_id, buy_price, buy_shares, buy_date))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_trade(trade_id, user_id="default"):
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM watchlist_trades WHERE id=? AND user_id=?", (trade_id, user_id))
         conn.commit()
     finally:
         conn.close()
