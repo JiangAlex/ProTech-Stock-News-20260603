@@ -30,6 +30,19 @@ def init_db():
         if "buy_date" not in cols:
             conn.execute("ALTER TABLE watchlist ADD COLUMN buy_date TEXT DEFAULT ''")
         conn.commit()
+        # Check if PK needs to be updated to composite (stock_code, user_id)
+        pk_sql = conn.execute("SELECT sql FROM sqlite_master WHERE name='watchlist'").fetchone()[0]
+        if "PRIMARY KEY (stock_code, user_id)" not in pk_sql:
+            conn.execute("""CREATE TABLE IF NOT EXISTS watchlist_new (
+                stock_code TEXT, stock_name TEXT, group_name TEXT DEFAULT '預設',
+                note TEXT DEFAULT '', user_id TEXT DEFAULT 'default',
+                buy_price REAL DEFAULT 0, buy_shares INTEGER DEFAULT 0, buy_date TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                PRIMARY KEY (stock_code, user_id))""")
+            conn.execute("INSERT OR IGNORE INTO watchlist_new (stock_code, stock_name, group_name, note, user_id, buy_price, buy_shares, buy_date, created_at) SELECT stock_code, stock_name, COALESCE(group_name,'預設'), COALESCE(note,''), COALESCE(user_id,'default'), COALESCE(buy_price,0), COALESCE(buy_shares,0), COALESCE(buy_date,''), created_at FROM watchlist")
+            conn.execute("DROP TABLE watchlist")
+            conn.execute("ALTER TABLE watchlist_new RENAME TO watchlist")
+            conn.commit()
     else:
         conn.execute("""CREATE TABLE watchlist (
             stock_code TEXT, stock_name TEXT, group_name TEXT DEFAULT '預設',

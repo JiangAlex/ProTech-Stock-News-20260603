@@ -153,13 +153,13 @@
 // --- State ---
 let chart = null, currentCode = '', lastData = [];
 let candleSeries = null;
-let currentUser = localStorage.getItem('protech_user') || 'default';
+let currentUser = (localStorage.getItem('protech_user') || 'default').toLowerCase();
 const MA_COLORS = ['#ffeb3b','#2196f3','#e91e63','#66bb6a','#ff9800'];
 let maLines = [{period:5,on:true},{period:20,on:true},{period:60,on:true}];
 
 function U(url){return url+(url.includes('?')?'&':'?')+'user='+encodeURIComponent(currentUser);}
 function switchUser(name){
-    name=name.trim()||'default';
+    name=(name.trim()||'default').toLowerCase();
     currentUser=name;
     localStorage.setItem('protech_user',name);
     document.getElementById('userInput').value=name==='default'?'':name;
@@ -469,12 +469,17 @@ function renderDividendChart(id,data){
 
 // --- Watchlist ---
 async function loadWatchlist(){
+    const p=document.getElementById('watchlistPanel');
+    if(currentUser==='default'){
+        p.innerHTML='<div class="loading" style="color:#ff9800;">請在右上角輸入使用者名稱</div>';
+        document.getElementById('watchlistInline').textContent='';
+        return;
+    }
     const [r, gr, br, tr]=await Promise.all([fetch(U('/api/watchlist')),fetch(U('/api/watchlist/groups')),fetch(U('/api/watchlist/balance')),fetch(U('/api/watchlist/trades'))]);
     const list=await r.json();
     const emptyGroups=await gr.json();
     const {balance}=await br.json();
     const allTrades=await tr.json();
-    const p=document.getElementById('watchlistPanel');
     const il=document.getElementById('watchlistInline');
 
     // Group trades by stock_code
@@ -520,7 +525,9 @@ async function loadWatchlist(){
         <button class="btn btn-s" onclick="deposit()" style="font-size:9px;padding:1px 5px;">入金</button>
     </div>`;
 
-    if(!groupNames.length){p.innerHTML=html+'<div class="loading">無自選股</div>';return;}
+    if(!groupNames.length){p.innerHTML=html+`<div style="padding:6px 10px;border-bottom:1px solid #2a2d38;">
+        <button class="btn btn-s" onclick="addGroup()" style="font-size:10px;">＋ 新增分組</button>
+    </div><div class="loading">無自選股</div>`;return;}
 
     html+=`<div style="padding:6px 10px;border-bottom:1px solid #2a2d38;">
         <button class="btn btn-s" onclick="addGroup()" style="font-size:10px;">＋ 新增分組</button>
@@ -566,6 +573,7 @@ async function loadWatchlist(){
 }
 async function toggleWatch(){
     if(!currentCode)return;
+    if(currentUser==='default'){alert('請先輸入使用者名稱');return;}
     const [list,allGroups]=await Promise.all([fetch(U('/api/watchlist')).then(r=>r.json()),fetch(U('/api/watchlist/groups')).then(r=>r.json())]);
     const exists=list.some(s=>s.stock_code===currentCode);
     if(exists){await fetch(U(`/api/watchlist/${currentCode}`),{method:'DELETE'});}
@@ -578,6 +586,7 @@ async function toggleWatch(){
 }
 async function delWatch(code){await fetch(U(`/api/watchlist/${code}`),{method:'DELETE'});loadWatchlist();}
 async function updateWatchBtn(){
+    if(currentUser==='default'){document.getElementById('btnWatch').textContent='☆ 加入自選';document.getElementById('btnWatch').style.color='';return;}
     const list=await(await fetch(U('/api/watchlist'))).json();
     const exists=list.some(s=>s.stock_code===currentCode);
     document.getElementById('btnWatch').textContent=exists?'★ 已加入':'☆ 加入自選';
@@ -684,12 +693,14 @@ async function loadHot(type='active'){
     document.getElementById('listPanelBtns').innerHTML=`<button class="btn ${type==='active'?'btn-p':'btn-s'}" onclick="loadHot('active')" style="font-size:10px;padding:3px 6px;">瀏覽</button><button class="btn ${type==='trending'?'btn-p':'btn-s'}" onclick="loadHot('trending')" style="font-size:10px;padding:3px 6px;">激增</button><button class="btn ${type==='search'?'btn-p':'btn-s'}" onclick="loadHot('search')" style="font-size:10px;padding:3px 6px;">搜尋</button>`;
     const p=document.getElementById('listPanel');
     p.innerHTML='<div class="loading">載入中...</div>';
-    const r=await fetch(`/api/hot-stocks?type=${type}`);
-    const stocks=await r.json();
-    if(!stocks.length){p.innerHTML='<div class="loading">無資料</div>';return;}
-    p.innerHTML=stocks.map(s=>`<div class="stock-item" onclick="document.getElementById('searchInput').value='${s.code}';loadStock('${s.code}')">
-        <div class="info"><span class="rank">#${s.rank}</span><span class="code">${s.code}</span><span class="name">${s.name}</span></div>
-    </div>`).join('');
+    try{
+        const r=await fetch(`/api/hot-stocks?type=${type}`);
+        const stocks=await r.json();
+        if(!stocks.length){p.innerHTML='<div class="loading">無資料</div>';return;}
+        p.innerHTML=stocks.map(s=>`<div class="stock-item" onclick="document.getElementById('searchInput').value='${s.code}';loadStock('${s.code}')">
+            <div class="info"><span class="rank">#${s.rank}</span><span class="code">${s.code}</span><span class="name">${s.name}</span></div>
+        </div>`).join('');
+    }catch(e){p.innerHTML='<div class="loading">載入失敗，請重試</div>';}
 }
 
 // --- Rank ---
