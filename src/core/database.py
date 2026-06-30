@@ -29,6 +29,10 @@ def init_db():
             conn.execute("ALTER TABLE watchlist ADD COLUMN buy_shares INTEGER DEFAULT 0")
         if "buy_date" not in cols:
             conn.execute("ALTER TABLE watchlist ADD COLUMN buy_date TEXT DEFAULT ''")
+        if "group_name" not in cols:
+            conn.execute("ALTER TABLE watchlist ADD COLUMN group_name TEXT DEFAULT '預設'")
+        if "note" not in cols:
+            conn.execute("ALTER TABLE watchlist ADD COLUMN note TEXT DEFAULT ''")
         conn.commit()
         # Check if PK needs to be updated to composite (stock_code, user_id)
         pk_sql = conn.execute("SELECT sql FROM sqlite_master WHERE name='watchlist'").fetchone()[0]
@@ -39,7 +43,22 @@ def init_db():
                 buy_price REAL DEFAULT 0, buy_shares INTEGER DEFAULT 0, buy_date TEXT DEFAULT '',
                 created_at TEXT DEFAULT (datetime('now', 'localtime')),
                 PRIMARY KEY (stock_code, user_id))""")
-            conn.execute("INSERT OR IGNORE INTO watchlist_new (stock_code, stock_name, group_name, note, user_id, buy_price, buy_shares, buy_date, created_at) SELECT stock_code, stock_name, COALESCE(group_name,'預設'), COALESCE(note,''), COALESCE(user_id,'default'), COALESCE(buy_price,0), COALESCE(buy_shares,0), COALESCE(buy_date,''), created_at FROM watchlist")
+            # Dynamically build SELECT based on existing cols
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(watchlist)").fetchall()]
+            col_map = {
+                'stock_code': 'stock_code',
+                'stock_name': 'stock_name',
+                'group_name': "COALESCE(group_name,'預設')" if 'group_name' in cols else "'預設'",
+                'note': "COALESCE(note,'')" if 'note' in cols else "''",
+                'user_id': "COALESCE(user_id,'default')" if 'user_id' in cols else "'default'",
+                'buy_price': "COALESCE(buy_price,0)" if 'buy_price' in cols else "0",
+                'buy_shares': "COALESCE(buy_shares,0)" if 'buy_shares' in cols else "0",
+                'buy_date': "COALESCE(buy_date,'')" if 'buy_date' in cols else "''",
+                'created_at': 'created_at' if 'created_at' in cols else "datetime('now','localtime')",
+            }
+            insert_cols = ', '.join(col_map.keys())
+            select_cols = ', '.join(col_map.values())
+            conn.execute(f"INSERT OR IGNORE INTO watchlist_new ({insert_cols}) SELECT {select_cols} FROM watchlist")
             conn.execute("DROP TABLE watchlist")
             conn.execute("ALTER TABLE watchlist_new RENAME TO watchlist")
             conn.commit()
