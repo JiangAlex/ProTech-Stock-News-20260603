@@ -39,6 +39,5 @@ python -m src.server
 
 ## 資料來源
 
-- PostgreSQL (ProTech-QuantStockDB) — K 線、營收、獲利
+- PostgreSQL (ProTech-QuantStockDB) — K 線、營收、獲利、自選股、交易記錄、備註、餘額、排行榜
 - Yahoo Stock — 社群爆紅榜
-- SQLite — 自選股
