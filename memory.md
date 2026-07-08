@@ -85,3 +85,11 @@ FastAPI 路由按定義順序匹配，靜態路徑必須在動態路徑前：
 - Remote: https://github.com/JiangAlex/ProTech-Stock-News-20260603.git
 - Branch: main
 - Latest commit: 1ca706b (2026-06-30)
+
+## 2026-07-08 修復
+
+### watchlist_notes 序列衝突 (500 Error)
+- **現象**: `POST /api/watchlist/{code}/notes` 回 500，`psycopg2.errors.UniqueViolation: duplicate key value violates unique constraint "watchlist_notes_pkey"` (Key id=4 already exists)
+- **原因**: `watchlist_notes_id_seq` 序列與實際資料不同步（可能因手動插入或 migration 未推進序列）
+- **修復**: `SELECT setval('watchlist_notes_id_seq', (SELECT COALESCE(MAX(id), 0) FROM watchlist_notes));`
+- **預防**: 若日後有手動 INSERT 帶明確 id，記得重設序列
