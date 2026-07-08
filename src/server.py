@@ -1,14 +1,14 @@
 """FastAPI server for ProTech Stock Dashboard."""
 
 from fastapi import FastAPI, Query, UploadFile, File, Form
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
 from src.core.database import (
     init_db, get_watchlist, add_watchlist, remove_watchlist, move_watchlist,
     rename_group, delete_group, save_rank, get_rank_history, create_group,
-    get_all_groups, get_notes, add_note, delete_note, update_cost, sell_stock,
+    get_all_groups, get_notes, add_note, delete_note, get_note_image, update_cost, sell_stock,
     get_balance, update_balance, get_trades, get_all_trades, add_trade, delete_trade,
 )
 from src.core.pg_client import (
@@ -139,6 +139,14 @@ def api_delete_note(note_id: int, user: str = Query("default")):
     return {"ok": True}
 
 
+@app.get("/api/watchlist/notes/{note_id}/image")
+def api_get_note_image(note_id: int):
+    data = get_note_image(note_id)
+    if not data:
+        return Response(status_code=404)
+    return Response(content=data, media_type="image/png")
+
+
 # --- Balance ---
 
 @app.get("/api/watchlist/balance")
@@ -229,15 +237,10 @@ def api_get_notes(code: str, user: str = Query("default")):
 @app.post("/api/watchlist/{code}/notes")
 async def api_add_note(code: str, user: str = Query("default"),
                        content: str = Form(""), image: UploadFile = File(None)):
-    image_path = ""
+    image_data = None
     if image and image.filename:
-        import uuid
-        ext = Path(image.filename).suffix
-        fname = f"{code}_{uuid.uuid4().hex[:8]}{ext}"
-        dest = UPLOADS_DIR / fname
-        dest.write_bytes(await image.read())
-        image_path = f"/uploads/{fname}"
-    add_note(code, content, image_path, user)
+        image_data = await image.read()
+    add_note(code, content, "", user, image_data)
     return {"ok": True}
 
 

@@ -148,18 +148,19 @@ def get_notes(stock_code, user_id="default"):
     conn = _conn()
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("SELECT * FROM watchlist_notes WHERE stock_code = %s AND user_id = %s ORDER BY created_at DESC", (stock_code, user_id))
+        cur.execute("SELECT id, stock_code, content, image_path, user_id, created_at, (image_data IS NOT NULL) AS has_image FROM watchlist_notes WHERE stock_code = %s AND user_id = %s ORDER BY created_at DESC", (stock_code, user_id))
         return [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
 
 
-def add_note(stock_code, content="", image_path="", user_id="default"):
+def add_note(stock_code, content="", image_path="", user_id="default", image_data=None):
     conn = _conn()
     try:
         cur = conn.cursor()
-        cur.execute("INSERT INTO watchlist_notes (stock_code, content, image_path, user_id) VALUES (%s, %s, %s, %s)",
-                    (stock_code, content, image_path, user_id))
+        cur.execute(
+            "INSERT INTO watchlist_notes (stock_code, content, image_path, user_id, image_data) VALUES (%s, %s, %s, %s, %s)",
+            (stock_code, content, image_path, user_id, psycopg2.Binary(image_data) if image_data else None))
         conn.commit()
     finally:
         conn.close()
@@ -174,6 +175,17 @@ def delete_note(note_id, user_id="default"):
         cur.execute("DELETE FROM watchlist_notes WHERE id = %s AND user_id = %s", (note_id, user_id))
         conn.commit()
         return row["image_path"] if row and row["image_path"] else ""
+    finally:
+        conn.close()
+
+
+def get_note_image(note_id):
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT image_data FROM watchlist_notes WHERE id = %s", (note_id,))
+        row = cur.fetchone()
+        return bytes(row[0]) if row and row[0] else None
     finally:
         conn.close()
 

@@ -40,8 +40,10 @@
 
 ### Notes 備註
 - 多筆 notes（文字 + 圖檔上傳）
-- 圖檔存 data/uploads/，靜態服務掛載 /uploads
-- 截圖功能：K 線圖截圖自動存入個股 notes
+- 圖檔存 PostgreSQL bytea 欄位（image_data），不再依賴檔案系統
+- 讀取圖片 API: `GET /api/watchlist/notes/{note_id}/image` → 回傳 image/png
+- 截圖功能：K 線圖截圖自動存入個股 notes（binary 直接寫入 DB）
+- 前端圖片優先用 has_image + API，fallback 到舊 image_path（向下相容）
 
 ### K 線圖畫線工具
 - 畫線模式（✏）：拖曳畫線段，跟隨 K 線移動（用邏輯座標）
@@ -93,3 +95,9 @@ FastAPI 路由按定義順序匹配，靜態路徑必須在動態路徑前：
 - **原因**: `watchlist_notes_id_seq` 序列與實際資料不同步（可能因手動插入或 migration 未推進序列）
 - **修復**: `SELECT setval('watchlist_notes_id_seq', (SELECT COALESCE(MAX(id), 0) FROM watchlist_notes));`
 - **預防**: 若日後有手動 INSERT 帶明確 id，記得重設序列
+
+### K線截圖改存 PostgreSQL bytea
+- **變更**: 圖檔 binary 改存 `watchlist_notes.image_data` (bytea)，不再寫入 `data/uploads/`
+- **新 API**: `GET /api/watchlist/notes/{note_id}/image` 回傳 PNG
+- **前端**: 優先用 `has_image` flag + API URL，fallback 舊 `image_path`
+- **遷移**: 6 筆既有圖檔已全部寫入 DB，`data/uploads/` 可清除

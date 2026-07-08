@@ -671,7 +671,7 @@ async function renderNotes(code){
         ${notes.map(n=>`<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:3px 0;border-top:1px solid #2a2d38;">
             <div style="flex:1;font-size:11px;color:#ccc;">
                 ${n.content?`<span>${n.content.replace(/</g,'&lt;')}</span>`:''}
-                ${n.image_path?`<img src="${n.image_path}" style="max-width:120px;max-height:80px;border-radius:4px;display:block;margin-top:2px;cursor:pointer;" onclick="window.open('${n.image_path}','_blank')">`:''}
+                ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:120px;max-height:80px;border-radius:4px;display:block;margin-top:2px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:n.image_path?`<img src="${n.image_path}" style="max-width:120px;max-height:80px;border-radius:4px;display:block;margin-top:2px;cursor:pointer;" onclick="window.open('${n.image_path}','_blank')">`:''}
                 <div style="font-size:9px;color:#6b7a8d;margin-top:1px;">${n.created_at}</div>
             </div>
             <span onclick="delNote(${n.id},'${code}')" style="color:#ef5350;cursor:pointer;font-size:11px;">✕</span>
