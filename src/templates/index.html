@@ -252,11 +252,21 @@ function renderChart(data){
     candleSeries=cs;
 
     // MA
+    const maMarkers=[];
     maLines.forEach((m,i)=>{
         if(!m.on)return;
         const s=chart.addLineSeries({color:MA_COLORS[i],lineWidth:1,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false});
         s.setData(computeMA(cd,m.period));
+        // 扣抵標記：最新K棒往前第 period 根即為明日扣抵
+        const idx=cd.length-m.period;
+        if(idx>=0){
+            maMarkers.push({time:cd[idx].time,position:'belowBar',color:MA_COLORS[i],shape:'arrowUp',text:`▽MA${m.period}: ${cd[idx].close}`});
+        }
     });
+    if(maMarkers.length){
+        maMarkers.sort((a,b)=>a.time<b.time?-1:a.time>b.time?1:0);
+        cs.setMarkers(maMarkers);
+    }
 
     // Sub chart content
     if(sub==='vol'){
