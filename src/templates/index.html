@@ -71,8 +71,13 @@
 <div class="header">
     <h1>📈 ProTech Stock</h1>
     <div class="search-box">
-        <input type="text" id="searchInput" placeholder="輸入股票代號 (如 2330)" />
+        <input type="text" id="searchInput" placeholder="輸入股票代號 (如 2330, DJI, IXIC, SOX)" />
         <button class="btn btn-p" onclick="doSearch()">查詢</button>
+    </div>
+    <div style="display:flex;gap:3px;">
+        <button class="btn btn-s" onclick="loadStock('DJI')" style="font-size:10px;padding:3px 6px;">🇺🇸 道瓊</button>
+        <button class="btn btn-s" onclick="loadStock('IXIC')" style="font-size:10px;padding:3px 6px;">那斯達</button>
+        <button class="btn btn-s" onclick="loadStock('SOX')" style="font-size:10px;padding:3px 6px;">費半</button>
     </div>
     <div style="display:flex;align-items:center;gap:4px;">
         <span style="font-size:11px;color:#8b9dc3;">👤</span>
@@ -230,27 +235,38 @@ function addMA(){ if(maLines.length<5){maLines.push({period:10,on:true});renderM
 
 // --- Search ---
 function doSearch(){
-    const v=document.getElementById('searchInput').value.trim();
+    const v=document.getElementById('searchInput').value.trim().toUpperCase();
     if(/^\d{4}$/.test(v)) loadStock(v);
+    else if(['DJI','IXIC','SOX','^DJI','^IXIC','^SOX'].includes(v)) loadStock(v.replace('^',''));
 }
 document.addEventListener('keydown',e=>{if(e.key==='Enter')doSearch();});
 
 // --- Stock Detail ---
+const US_INDICES=['DJI','IXIC','SOX'];
+const US_NAMES={DJI:'道瓊工業指數',IXIC:'那斯達克綜合指數',SOX:'費城半導體指數'};
+function isUSIndex(code){return US_INDICES.includes(code);}
+
 async function loadStock(code){
     currentCode=code;
     document.getElementById('stockPanel').style.display='block';
     document.getElementById('stockCode').textContent=code;
     document.getElementById('stockPanel').scrollIntoView({behavior:'smooth'});
 
-    // Name
-    if(!window._sm){const r=await fetch('/api/stocks');window._sm={};(await r.json()).forEach(s=>window._sm[s.code]=s.name);}
-    document.getElementById('stockName').textContent=window._sm[code]||'';
+    if(isUSIndex(code)){
+        document.getElementById('stockName').textContent=US_NAMES[code]||'';
+        document.getElementById('fundCharts').style.display='none';
+        document.getElementById('newsLink').href=`https://finance.yahoo.com/quote/%5E${code}`;
+        document.getElementById('newsLink').textContent=`開啟 ${code} Yahoo →`;
+    } else {
+        if(!window._sm){const r=await fetch('/api/stocks');window._sm={};(await r.json()).forEach(s=>window._sm[s.code]=s.name);}
+        document.getElementById('stockName').textContent=window._sm[code]||'';
+        document.getElementById('fundCharts').style.display='';
+        loadFundamentals(code);
+        document.getElementById('newsLink').href=`https://tw.news.search.yahoo.com/search?p=${code}&fr=finance`;
+        document.getElementById('newsLink').textContent=`開啟 ${code} 新聞 →`;
+    }
     updateWatchBtn();
-
     await reloadChart();
-    loadFundamentals(code);
-    document.getElementById('newsLink').href=`https://tw.news.search.yahoo.com/search?p=${code}&fr=finance`;
-    document.getElementById('newsLink').textContent=`開啟 ${code} 新聞 →`;
     if(floatNotesOpen) renderFloatNotes(code);
 }
 
@@ -258,7 +274,13 @@ async function reloadChart(){
     if(!currentCode)return;
     const period=document.getElementById('selPeriod').value;
     const days=document.getElementById('numDays').value;
-    const r=await fetch(`/api/stock/${currentCode}/kline?period=${period}&days=${days}`);
+    let url;
+    if(isUSIndex(currentCode)){
+        url=`/api/usindex/${currentCode}/kline?period=${period}&days=${days}`;
+    } else {
+        url=`/api/stock/${currentCode}/kline?period=${period}&days=${days}`;
+    }
+    const r=await fetch(url);
     lastData=await r.json();
     renderChart(lastData);
 }
