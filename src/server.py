@@ -10,6 +10,7 @@ from src.core.database import (
     rename_group, delete_group, save_rank, get_rank_history, create_group,
     get_all_groups, get_notes, add_note, delete_note, get_note_image, update_cost, sell_stock,
     get_balance, update_balance, get_trades, get_all_trades, add_trade, delete_trade,
+    get_alerts, add_alert, update_alert, delete_alert, get_alert_settings, update_alert_settings,
 )
 from src.core.pg_client import (
     get_all_stocks, get_daily_kline, get_weekly_kline, get_monthly_kline,
@@ -145,6 +146,55 @@ def api_get_note_image(note_id: int):
     if not data:
         return Response(status_code=404)
     return Response(content=data, media_type="image/png")
+
+
+# --- Alerts ---
+
+@app.get("/api/alerts")
+def api_get_alerts(user: str = Query("default"), stock_code: str = Query(None)):
+    return get_alerts(user, stock_code)
+
+
+@app.post("/api/alerts")
+def api_add_alert(body: dict):
+    new_id = add_alert(
+        stock_code=body["stock_code"],
+        alert_type=body["alert_type"],
+        params=body.get("params", {}),
+        repeat_mode=body.get("repeat_mode", "once"),
+        user_id=body.get("user", "default"),
+    )
+    return {"ok": True, "id": new_id}
+
+
+@app.get("/api/alerts/settings")
+def api_get_alert_settings(user: str = Query("default")):
+    return get_alert_settings(user)
+
+
+@app.put("/api/alerts/settings")
+def api_update_alert_settings(body: dict):
+    update_alert_settings(
+        user_id=body.get("user", "default"),
+        run_time=body.get("run_time", "18:00"),
+        telegram_chat_id=body.get("telegram_chat_id", ""),
+        telegram_bot_token=body.get("telegram_bot_token", ""),
+    )
+    return {"ok": True}
+
+
+@app.put("/api/alerts/{alert_id}")
+def api_update_alert(alert_id: int, body: dict):
+    user = body.pop("user", "default")
+    update_alert(alert_id, user, **body)
+    return {"ok": True}
+
+
+@app.delete("/api/alerts/{alert_id}")
+def api_delete_alert(alert_id: int, user: str = Query("default")):
+    delete_alert(alert_id, user)
+    return {"ok": True}
+    return {"ok": True}
 
 
 # --- Balance ---

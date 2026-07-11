@@ -290,3 +290,123 @@ def get_rank_history(date, direction, market="all"):
         return [{**r, 'price': float(r['price']) if r['price'] else 0, 'change_val': float(r['change_val']) if r['change_val'] else 0} for r in rows]
     finally:
         conn.close()
+
+
+# --- Alerts ---
+
+def get_alerts(user_id="default", stock_code=None):
+    conn = _conn()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        if stock_code:
+            cur.execute("SELECT * FROM stock_alerts WHERE user_id = %s AND stock_code = %s ORDER BY created_at DESC", (user_id, stock_code))
+        else:
+            cur.execute("SELECT * FROM stock_alerts WHERE user_id = %s ORDER BY created_at DESC", (user_id,))
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def add_alert(stock_code, alert_type, params, repeat_mode="once", user_id="default"):
+    import json
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO stock_alerts (stock_code, user_id, alert_type, params, repeat_mode) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+            (stock_code, user_id, alert_type, json.dumps(params), repeat_mode))
+        new_id = cur.fetchone()[0]
+        conn.commit()
+        return new_id
+    finally:
+        conn.close()
+
+
+def update_alert(alert_id, user_id="default", **kwargs):
+    import json
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        sets = []
+        vals = []
+        for k, v in kwargs.items():
+            if k in ('alert_type', 'repeat_mode', 'enabled'):
+                sets.append(f"{k} = %s")
+                vals.append(v)
+            elif k == 'params':
+                sets.append("params = %s")
+                vals.append(json.dumps(v))
+        if not sets:
+            return
+        vals.extend([alert_id, user_id])
+        cur.execute(f"UPDATE stock_alerts SET {', '.join(sets)} WHERE id = %s AND user_id = %s", vals)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_alert(alert_id, user_id="default"):
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM stock_alerts WHERE id = %s AND user_id = %s", (alert_id, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_enabled_alerts():
+    """Get all enabled alerts (for alert engine)."""
+    conn = _conn()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT * FROM stock_alerts WHERE enabled = true")
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def mark_alert_triggered(alert_id):
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE stock_alerts SET last_triggered = now() WHERE id = %s", (alert_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def disable_alert(alert_id):
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE stock_alerts SET enabled = false WHERE id = %s", (alert_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# --- Alert Settings ---
+
+def get_alert_settings(user_id="default"):
+    conn = _conn()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT * FROM alert_settings WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+        return dict(row) if row else {"user_id": user_id, "run_time": "18:00", "telegram_chat_id": "", "telegram_bot_token": ""}
+    finally:
+        conn.close()
+
+
+def update_alert_settings(user_id="default", run_time="18:00", telegram_chat_id="", telegram_bot_token=""):
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO alert_settings (user_id, run_time, telegram_chat_id, telegram_bot_token) VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT (user_id) DO UPDATE SET run_time=EXCLUDED.run_time, telegram_chat_id=EXCLUDED.telegram_chat_id, telegram_bot_token=EXCLUDED.telegram_bot_token",
+            (user_id, run_time, telegram_chat_id, telegram_bot_token))
+        conn.commit()
+    finally:
+        conn.close()
