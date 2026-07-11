@@ -12,6 +12,7 @@ US_INDICES = {
     "DJI": "^DJI",      # Dow Jones
     "IXIC": "^IXIC",    # NASDAQ Composite
     "SOX": "^SOX",      # Philadelphia Semiconductor
+    "TWII": "^TWII",    # Taiwan Weighted Index (上市加權)
 }
 
 

@@ -75,6 +75,7 @@
         <button class="btn btn-p" onclick="doSearch()">查詢</button>
     </div>
     <div style="display:flex;gap:3px;">
+        <button class="btn btn-s" onclick="loadStock('TWII')" style="font-size:10px;padding:3px 6px;">🇹🇼 加權</button>
         <button class="btn btn-s" onclick="loadStock('DJI')" style="font-size:10px;padding:3px 6px;">🇺🇸 道瓊</button>
         <button class="btn btn-s" onclick="loadStock('IXIC')" style="font-size:10px;padding:3px 6px;">那斯達</button>
         <button class="btn btn-s" onclick="loadStock('SOX')" style="font-size:10px;padding:3px 6px;">費半</button>
@@ -172,6 +173,21 @@
             </div>
         </div>
     </div>
+
+    <!-- News Notes -->
+    <div class="panel full-width">
+        <div class="panel-header">
+            <h2>📋 新聞備註</h2>
+        </div>
+        <div style="padding:10px 14px;">
+            <div style="display:flex;gap:4px;margin-bottom:8px;">
+                <input type="text" id="newsNoteInput" placeholder="輸入新聞備註..." style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;">
+                <label class="btn btn-s" style="cursor:pointer;">📎<input type="file" accept="image/*" style="display:none;" onchange="uploadNewsNote(this.files[0])"></label>
+                <button class="btn btn-p" onclick="submitNewsNote()">送出</button>
+            </div>
+            <div id="newsNotesList"></div>
+        </div>
+    </div>
 </div>
 
 <!-- Floating Notes Window -->
@@ -237,13 +253,13 @@ function addMA(){ if(maLines.length<5){maLines.push({period:10,on:true});renderM
 function doSearch(){
     const v=document.getElementById('searchInput').value.trim().toUpperCase();
     if(/^\d{4}$/.test(v)) loadStock(v);
-    else if(['DJI','IXIC','SOX','^DJI','^IXIC','^SOX'].includes(v)) loadStock(v.replace('^',''));
+    else if(['DJI','IXIC','SOX','TWII','^DJI','^IXIC','^SOX','^TWII'].includes(v)) loadStock(v.replace('^',''));
 }
 document.addEventListener('keydown',e=>{if(e.key==='Enter')doSearch();});
 
 // --- Stock Detail ---
-const US_INDICES=['DJI','IXIC','SOX'];
-const US_NAMES={DJI:'道瓊工業指數',IXIC:'那斯達克綜合指數',SOX:'費城半導體指數'};
+const US_INDICES=['DJI','IXIC','SOX','TWII'];
+const US_NAMES={DJI:'道瓊工業指數',IXIC:'那斯達克綜合指數',SOX:'費城半導體指數',TWII:'上市加權指數'};
 function isUSIndex(code){return US_INDICES.includes(code);}
 
 async function loadStock(code){
@@ -1098,6 +1114,38 @@ renderMASettings();
 loadWatchlist();
 loadHot();
 initDrawing();
+loadNewsNotes();
+
+// --- News Notes ---
+async function loadNewsNotes(){
+    const el=document.getElementById('newsNotesList');
+    const notes=await fetch(U('/api/watchlist/NEWS/notes')).then(r=>r.json());
+    el.innerHTML=notes.map(n=>`<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:6px;padding:6px;border-bottom:1px solid #2a2d38;">
+        <div style="flex:1;font-size:12px;color:#ccc;">
+            ${n.content?`<span>${n.content.replace(/</g,'&lt;')}</span>`:''}
+            ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:200px;max-height:120px;border-radius:4px;display:block;margin-top:4px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:''}
+            <div style="font-size:9px;color:#6b7a8d;margin-top:2px;">${n.created_at}</div>
+        </div>
+        <span onclick="delNewsNote(${n.id})" style="color:#ef5350;cursor:pointer;font-size:12px;">✕</span>
+    </div>`).join('')||'<div style="color:#6b7a8d;font-size:11px;">尚無備註</div>';
+}
+async function submitNewsNote(){
+    const inp=document.getElementById('newsNoteInput');
+    const v=inp.value.trim();if(!v)return;
+    const fd=new FormData();fd.append('content',v);
+    await fetch(U('/api/watchlist/NEWS/notes'),{method:'POST',body:fd});
+    inp.value='';loadNewsNotes();
+}
+async function uploadNewsNote(file){
+    if(!file)return;
+    const fd=new FormData();fd.append('content','');fd.append('image',file);
+    await fetch(U('/api/watchlist/NEWS/notes'),{method:'POST',body:fd});
+    loadNewsNotes();
+}
+async function delNewsNote(id){
+    await fetch(U(`/api/watchlist/notes/${id}`),{method:'DELETE'});
+    loadNewsNotes();
+}
 
 // --- Alert Notification Polling ---
 if('Notification' in window && Notification.permission==='default') Notification.requestPermission();
