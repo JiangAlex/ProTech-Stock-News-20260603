@@ -1,5 +1,8 @@
 """FastAPI server for ProTech Stock Dashboard."""
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, Query, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles

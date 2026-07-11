@@ -394,7 +394,17 @@ def get_alert_settings(user_id="default"):
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("SELECT * FROM alert_settings WHERE user_id = %s", (user_id,))
         row = cur.fetchone()
-        return dict(row) if row else {"user_id": user_id, "run_time": "18:00", "telegram_chat_id": "", "telegram_bot_token": ""}
+        if row:
+            result = dict(row)
+        else:
+            result = {"user_id": user_id, "run_time": "18:00", "telegram_chat_id": "", "telegram_bot_token": ""}
+        # Fallback to env vars if DB values are empty
+        import os
+        if not result.get("telegram_bot_token"):
+            result["telegram_bot_token"] = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        if not result.get("telegram_chat_id"):
+            result["telegram_chat_id"] = os.getenv("TELEGRAM_CHAT_ID", "")
+        return result
     finally:
         conn.close()
 
