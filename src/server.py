@@ -250,7 +250,25 @@ def api_update_alert(alert_id: int, body: dict):
 def api_delete_alert(alert_id: int, user: str = Query("default")):
     delete_alert(alert_id, user)
     return {"ok": True}
-    return {"ok": True}
+
+
+# --- Backtest ---
+
+@app.post("/api/backtest")
+def api_backtest(body: dict):
+    from src.services.backtest_engine import run_backtest
+    result = run_backtest(
+        stock_code=body["stock_code"],
+        buy_conditions=body.get("buy_conditions", []),
+        sell_conditions=body.get("sell_conditions", []),
+        buy_logic=body.get("buy_logic", "and"),
+        sell_logic=body.get("sell_logic", "and"),
+        shares=body.get("shares", 1),
+        fee_rate=body.get("fee_rate", 0.1425),
+        tax_rate=body.get("tax_rate", 0.3),
+        days=body.get("days", 500),
+    )
+    return result
 
 
 # --- Balance ---
