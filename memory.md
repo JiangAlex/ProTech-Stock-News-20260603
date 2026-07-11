@@ -13,17 +13,18 @@
 
 ### 核心功能
 - K 線圖：日/週/月線切換，天數可調
-- 技術指標：MA 均線（最多 5 條）、VOL/MACD 子圖互斥切換
+- 技術指標：MA 均線（最多 5 條）、VOL/MACD 子圖互斥切換、MA 扣抵標記
 - 基本面：年度營收走勢、歷年股利柱狀圖
 - 社群爆紅榜：Yahoo 最多瀏覽/瀏覽激增/熱門搜尋
 - 漲跌幅排行：上市/上櫃，可查歷史日期
 - 個股新聞：底部外連 Yahoo News
+- **美股指數**：道瓊/那斯達克/費城半導體 K 線圖（搜尋框 + 快捷按鈕）
 
 ### 自選股系統
 - 分組管理（新增/重命名/刪除分組）
 - 多使用者隔離（簡易帳號，前端 localStorage，user_id 區隔）
-- 未輸入使用者名稱時無法操作自選股
-- user 名稱不分大小寫（統一轉 lowercase）
+- **▲▼ 快速切換**：同分組內上下切換個股
+- **🔔 警示通知**：多條件設定、定時檢查、toast + Browser Notification + Telegram
 
 ### 交易/損益追蹤
 - **多筆交易記錄** (watchlist_trades 表)：同一檔股票可多次買入
@@ -43,7 +44,33 @@
 - 圖檔存 PostgreSQL bytea 欄位（image_data），不再依賴檔案系統
 - 讀取圖片 API: `GET /api/watchlist/notes/{note_id}/image` → 回傳 image/png
 - 截圖功能：K 線圖截圖自動存入個股 notes（binary 直接寫入 DB）
+- **獨立浮動視窗**：K 線面板 📝 按鈕觸發，可拖曳，切股自動跟隨更新
 - 前端圖片優先用 has_image + API，fallback 到舊 image_path（向下相容）
+
+### 回測功能
+- **後端引擎** (`src/services/backtest_engine.py`)：8 種條件類型、AND/OR 邏輯組合
+- 支援：股價突破、漲跌幅、MA 交叉、站上/跌破 MA、爆量
+- 計算手續費(0.1425%) + 交易稅(0.3%)
+- 輸出：交易列表、總報酬率、勝率、最大回撤
+- **前端面板**：浮動可拖曳，策略設定 + 結果 K 線標記 + 交易明細
+- API: `POST /api/backtest`
+
+### 警示通知系統
+- DB 表：`stock_alerts`（條件）+ `alert_settings`（全域設定）
+- 7 種條件：股價≥/≤、漲幅/跌幅≥%、MA金叉/死叉、爆量
+- 通知管道：瀏覽器內 toast + Browser Notification + Telegram Bot
+- 定時引擎：每日按設定時間執行（asyncio loop）
+- 觸發模式：一次性 or 每日持續（使用者自選）
+- 前端 🔔 按鈕：浮動設定面板
+- 前端 30s 輪詢 `/api/alerts/triggered` 推送通知
+
+### 美股指數
+- 道瓊(DJI)、那斯達克(IXIC)、費城半導體(SOX)
+- 資料來源：Yahoo Finance chart API（urllib 直接呼叫）
+- 存入 PostgreSQL `us_index_kline` 表（UPSERT）
+- 每日 07:00 自動更新（獨立 scheduler）
+- 支援日/週/月聚合查詢
+- 前端：搜尋框 + header 快捷按鈕 + K 線圖顯示
 
 ### K 線圖畫線工具
 - 畫線模式（✏）：拖曳畫線段，跟隨 K 線移動（用邏輯座標）
