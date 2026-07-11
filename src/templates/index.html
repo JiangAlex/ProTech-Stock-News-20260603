@@ -863,8 +863,7 @@ async function renderAlertPanel(code){
         <div style="margin-top:12px;padding-top:8px;border-top:1px solid #2a2d38;">
             <div style="font-weight:600;color:#8b9dc3;margin-bottom:4px;">全域設定</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-                <label>每日執行 <input type="text" id="alertRunTime" value="${settings.run_time}" style="width:50px;" placeholder="HH:MM"></label>
-                <button class="btn btn-s" onclick="saveAlertSettings()" style="font-size:10px;padding:2px 6px;">儲存</button>
+                <span style="color:#8b9dc3;font-size:10px;">每日 18:30 執行</span>
             </div>
         </div>
     `;
@@ -903,11 +902,6 @@ async function deleteAlertItem(id,code){
 async function toggleAlertEnabled(id,enabled,code){
     await fetch(`/api/alerts/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:currentUser,enabled})});
     renderAlertPanel(code);
-}
-async function saveAlertSettings(){
-    const body={user:currentUser,run_time:document.getElementById('alertRunTime').value};
-    await fetch('/api/alerts/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    alert('警示設定已儲存');
 }
 // Drag support for alert panel
 (function(){
