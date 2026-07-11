@@ -176,10 +176,11 @@
 
     <!-- News Notes -->
     <div class="panel full-width">
-        <div class="panel-header">
+        <div class="panel-header" onclick="toggleNewsNotes()" style="cursor:pointer;">
             <h2>📋 新聞備註</h2>
+            <span id="newsNotesToggle" style="color:#8b9dc3;font-size:11px;">▸ 展開</span>
         </div>
-        <div style="padding:10px 14px;">
+        <div id="newsNotesContent" style="display:none;padding:10px 14px;">
             <div style="display:flex;gap:4px;margin-bottom:8px;align-items:center;">
                 <input type="date" id="newsNoteDate" style="padding:5px 8px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;">
                 <input type="text" id="newsNoteInput" placeholder="輸入新聞備註..." style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;">
@@ -1107,11 +1108,22 @@ renderMASettings();
 loadWatchlist();
 loadHot();
 initDrawing();
-loadNewsNotes();
 // Set default date to today
 document.getElementById('newsNoteDate').value=new Date().toISOString().slice(0,10);
 
 // --- News Notes ---
+function toggleNewsNotes(){
+    const el=document.getElementById('newsNotesContent');
+    const toggle=document.getElementById('newsNotesToggle');
+    if(el.style.display==='none'){
+        el.style.display='block';
+        toggle.textContent='▾ 收合';
+        loadNewsNotes();
+    } else {
+        el.style.display='none';
+        toggle.textContent='▸ 展開';
+    }
+}
 async function loadNewsNotes(){
     const el=document.getElementById('newsNotesList');
     const notes=await fetch(U('/api/watchlist/NEWS/notes')).then(r=>r.json());
