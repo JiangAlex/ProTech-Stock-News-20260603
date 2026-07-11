@@ -395,11 +395,12 @@ def api_get_notes(code: str, user: str = Query("default")):
 
 @app.post("/api/watchlist/{code}/notes")
 async def api_add_note(code: str, user: str = Query("default"),
-                       content: str = Form(""), image: UploadFile = File(None)):
+                       content: str = Form(""), image: UploadFile = File(None),
+                       news_date: str = Form("")):
     image_data = None
     if image and image.filename:
         image_data = await image.read()
-    add_note(code, content, "", user, image_data)
+    add_note(code, content, "", user, image_data, news_date if news_date else None)
     return {"ok": True}
 
 

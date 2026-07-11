@@ -180,7 +180,8 @@
             <h2>📋 新聞備註</h2>
         </div>
         <div style="padding:10px 14px;">
-            <div style="display:flex;gap:4px;margin-bottom:8px;">
+            <div style="display:flex;gap:4px;margin-bottom:8px;align-items:center;">
+                <input type="date" id="newsNoteDate" style="padding:5px 8px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;">
                 <input type="text" id="newsNoteInput" placeholder="輸入新聞備註..." style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;">
                 <label class="btn btn-s" style="cursor:pointer;">📎<input type="file" accept="image/*" style="display:none;" onchange="uploadNewsNote(this.files[0])"></label>
                 <button class="btn btn-p" onclick="submitNewsNote()">送出</button>
@@ -1107,30 +1108,48 @@ loadWatchlist();
 loadHot();
 initDrawing();
 loadNewsNotes();
+// Set default date to today
+document.getElementById('newsNoteDate').value=new Date().toISOString().slice(0,10);
 
 // --- News Notes ---
 async function loadNewsNotes(){
     const el=document.getElementById('newsNotesList');
     const notes=await fetch(U('/api/watchlist/NEWS/notes')).then(r=>r.json());
-    el.innerHTML=notes.map(n=>`<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:6px;padding:6px;border-bottom:1px solid #2a2d38;">
-        <div style="flex:1;font-size:12px;color:#ccc;">
-            ${n.content?`<span>${n.content.replace(/</g,'&lt;')}</span>`:''}
-            ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:200px;max-height:120px;border-radius:4px;display:block;margin-top:4px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:''}
-            <div style="font-size:9px;color:#6b7a8d;margin-top:2px;">${n.created_at}</div>
+    if(!notes.length){el.innerHTML='<div style="color:#6b7a8d;font-size:11px;">尚無備註</div>';return;}
+    // Group by news_date
+    const groups={};
+    notes.forEach(n=>{
+        const d=n.news_date||'未分類';
+        if(!groups[d])groups[d]=[];
+        groups[d].push(n);
+    });
+    const sortedDates=Object.keys(groups).sort((a,b)=>b.localeCompare(a));
+    el.innerHTML=sortedDates.map(date=>`
+        <div style="margin-bottom:8px;">
+            <div style="font-size:12px;font-weight:600;color:#ffb74d;padding:4px 0;border-bottom:1px solid #3a3d48;margin-bottom:4px;">📅 ${date}</div>
+            ${groups[date].map(n=>`<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:4px 8px;">
+                <div style="flex:1;font-size:11px;color:#ccc;">
+                    ${n.content?`<span>${n.content.replace(/</g,'&lt;')}</span>`:''}
+                    ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:200px;max-height:120px;border-radius:4px;display:block;margin-top:4px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:''}
+                    <div style="font-size:9px;color:#6b7a8d;margin-top:2px;">${n.created_at}</div>
+                </div>
+                <span onclick="delNewsNote(${n.id})" style="color:#ef5350;cursor:pointer;font-size:11px;">✕</span>
+            </div>`).join('')}
         </div>
-        <span onclick="delNewsNote(${n.id})" style="color:#ef5350;cursor:pointer;font-size:12px;">✕</span>
-    </div>`).join('')||'<div style="color:#6b7a8d;font-size:11px;">尚無備註</div>';
+    `).join('');
 }
 async function submitNewsNote(){
     const inp=document.getElementById('newsNoteInput');
+    const dateInp=document.getElementById('newsNoteDate');
     const v=inp.value.trim();if(!v)return;
-    const fd=new FormData();fd.append('content',v);
+    const fd=new FormData();fd.append('content',v);fd.append('news_date',dateInp.value);
     await fetch(U('/api/watchlist/NEWS/notes'),{method:'POST',body:fd});
     inp.value='';loadNewsNotes();
 }
 async function uploadNewsNote(file){
     if(!file)return;
-    const fd=new FormData();fd.append('content','');fd.append('image',file);
+    const dateInp=document.getElementById('newsNoteDate');
+    const fd=new FormData();fd.append('content','');fd.append('image',file);fd.append('news_date',dateInp.value);
     await fetch(U('/api/watchlist/NEWS/notes'),{method:'POST',body:fd});
     loadNewsNotes();
 }
