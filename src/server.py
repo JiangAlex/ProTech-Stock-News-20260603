@@ -29,6 +29,7 @@ def startup():
     init_db()
     import asyncio
     asyncio.get_event_loop().create_task(_daily_rank_job())
+    asyncio.get_event_loop().create_task(_daily_alert_job())
 
 
 async def _daily_rank_job():
@@ -46,6 +47,61 @@ async def _daily_rank_job():
                 data = fetch_rank(direction, market)
                 if data:
                     save_rank(date.today().isoformat(), direction, market, data)
+
+
+# In-memory store for triggered alerts (for frontend polling)
+_triggered_alerts = []
+
+
+async def _daily_alert_job():
+    import asyncio
+    from datetime import datetime, timedelta
+    while True:
+        # Read run_time from settings (default 18:00)
+        settings = get_alert_settings("default")
+        run_time = settings.get("run_time", "18:00")
+        try:
+            h, m = map(int, run_time.split(":"))
+        except:
+            h, m = 18, 0
+        now = datetime.now()
+        target = now.replace(hour=h, minute=m, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+        await asyncio.sleep((target - now).total_seconds())
+        # Run alert engine
+        try:
+            from src.services.alert_engine import run_alert_check
+            from src.services.telegram_service import send_telegram_message
+            results = run_alert_check()
+            if results:
+                # Group by user for Telegram
+                user_msgs = {}
+                for r in results:
+                    _triggered_alerts.append(r)
+                    uid = r["user_id"]
+                    if uid not in user_msgs:
+                        user_msgs[uid] = []
+                    user_msgs[uid].append(r["message"])
+                # Send Telegram per user
+                for uid, msgs in user_msgs.items():
+                    s = get_alert_settings(uid)
+                    if s.get("telegram_bot_token") and s.get("telegram_chat_id"):
+                        text = "🔔 <b>ProTech 警示通知</b>\n\n" + "\n".join(msgs)
+                        send_telegram_message(s["telegram_bot_token"], s["telegram_chat_id"], text)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Alert job error: {e}")
+
+
+@app.get("/api/alerts/triggered")
+def api_get_triggered(user: str = Query("default")):
+    """Frontend polls this for toast/browser notifications."""
+    results = [a for a in _triggered_alerts if a["user_id"] == user]
+    # Clear after read
+    for r in results:
+        _triggered_alerts.remove(r)
+    return results
 
 
 @app.get("/", response_class=HTMLResponse)

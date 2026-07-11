@@ -53,6 +53,13 @@
         .float-notes-header{padding:8px 12px;background:#14161e;border-bottom:1px solid #2a2d38;cursor:move;display:flex;align-items:center;justify-content:space-between;user-select:none}
         .float-notes-header span{font-size:12px;color:#8b9dc3;font-weight:600}
         .float-notes-body{flex:1;overflow-y:auto;padding:8px}
+        .float-alert{position:fixed;top:100px;left:50%;transform:translateX(-50%);width:420px;max-height:520px;background:#1a1d28;border:1px solid #3a3d48;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.6);z-index:9999;display:none;flex-direction:column;overflow:hidden}
+        .float-alert-header{padding:8px 12px;background:#14161e;border-bottom:1px solid #2a2d38;cursor:move;display:flex;align-items:center;justify-content:space-between;user-select:none}
+        .float-alert-header span{font-size:12px;color:#ffeb3b;font-weight:600}
+        .float-alert-body{flex:1;overflow-y:auto;padding:10px;font-size:11px}
+        .alert-form select,.alert-form input{padding:3px 6px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px}
+        .alert-form label{color:#8b9dc3;font-size:10px}
+        .alert-list-item{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #2a2d38}
     </style>
 </head>
 <body>
@@ -163,6 +170,15 @@
         <span onclick="closeFloatNotes()" style="cursor:pointer;color:#ef5350;font-size:14px;">✕</span>
     </div>
     <div class="float-notes-body" id="floatNotesBody"></div>
+</div>
+
+<!-- Floating Alert Panel -->
+<div class="float-alert" id="floatAlert">
+    <div class="float-alert-header" id="floatAlertHeader">
+        <span id="floatAlertTitle">🔔 警示設定</span>
+        <span onclick="closeAlertPanel()" style="cursor:pointer;color:#ef5350;font-size:14px;">✕</span>
+    </div>
+    <div class="float-alert-body" id="floatAlertBody"></div>
 </div>
 
 <script>
@@ -604,6 +620,7 @@ async function loadWatchlist(){
                     </select>
                     <span onclick="event.stopPropagation();toggleTrades('${s.stock_code}')" title="交易明細" style="color:#8b9dc3;font-size:11px;cursor:pointer;">💲</span>
                     ${hasPos?`<span onclick="event.stopPropagation();sellStock('${s.stock_code}')" title="賣出" style="color:#ff9800;font-size:11px;cursor:pointer;">📤</span>`:''}
+                    <span onclick="event.stopPropagation();openAlertPanel('${s.stock_code}')" title="警示設定" style="color:#ffeb3b;font-size:11px;cursor:pointer;">🔔</span>
                     <span class="del" onclick="event.stopPropagation();delWatch('${s.stock_code}')">✕</span>
                 </span>
                 ${hasPos?`<div onclick="event.stopPropagation()" style="width:100%;font-size:10px;color:#6b7a8d;padding:1px 0 0 32px;">現${cp} | 均價${avgCost} × ${totalShares}張 | 損益 <span style="color:${pl>=0?'#ef5350':'#26a69a'}">${pl>=0?'+':''}${Math.round(pl).toLocaleString()}</span></div>`:''}
@@ -742,6 +759,115 @@ async function delNote(id,code){await fetch(U(`/api/watchlist/notes/${id}`),{met
     document.addEventListener('mousemove',e=>{if(!dragging)return;win.style.left=(e.clientX-ox)+'px';win.style.top=(e.clientY-oy)+'px';win.style.right='auto';});
     document.addEventListener('mouseup',()=>{dragging=false;});
 })();
+
+// --- Alert Panel ---
+let alertPanelCode='';
+function openAlertPanel(code){
+    alertPanelCode=code;
+    const w=document.getElementById('floatAlert');
+    w.style.display='flex';
+    document.getElementById('floatAlertTitle').textContent=`🔔 ${code} 警示設定`;
+    renderAlertPanel(code);
+}
+function closeAlertPanel(){document.getElementById('floatAlert').style.display='none';alertPanelCode='';}
+async function renderAlertPanel(code){
+    const body=document.getElementById('floatAlertBody');
+    const [alerts,settings]=await Promise.all([
+        fetch(U(`/api/alerts?stock_code=${code}`)).then(r=>r.json()),
+        fetch(U('/api/alerts/settings')).then(r=>r.json())
+    ]);
+    const typeLabels={price_above:'股價 ≥',price_below:'股價 ≤',change_pct_up:'漲幅 ≥',change_pct_down:'跌幅 ≥',ma_cross_up:'MA金叉',ma_cross_down:'MA死叉',volume:'量 ≥ 均量'};
+    body.innerHTML=`
+        <div class="alert-form" style="margin-bottom:10px;padding:8px;background:#14161e;border-radius:6px;">
+            <div style="margin-bottom:6px;font-weight:600;color:#ffeb3b;">新增條件</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+                <select id="alertType" onchange="onAlertTypeChange()">
+                    <option value="price_above">股價 ≥</option>
+                    <option value="price_below">股價 ≤</option>
+                    <option value="change_pct_up">漲幅 ≥ %</option>
+                    <option value="change_pct_down">跌幅 ≥ %</option>
+                    <option value="ma_cross_up">MA金叉(短上穿長)</option>
+                    <option value="ma_cross_down">MA死叉(短下穿長)</option>
+                    <option value="volume">量 ≥ N倍均量</option>
+                </select>
+                <span id="alertParamsArea"></span>
+                <select id="alertRepeat">
+                    <option value="once">觸發一次</option>
+                    <option value="daily">每日持續</option>
+                </select>
+                <button class="btn btn-p" onclick="addAlertItem('${code}')" style="font-size:10px;padding:3px 8px;">新增</button>
+            </div>
+        </div>
+        <div style="margin-bottom:8px;font-weight:600;color:#8b9dc3;">已設條件 (${alerts.length})</div>
+        <div id="alertList">${alerts.length?alerts.map(a=>`
+            <div class="alert-list-item">
+                <input type="checkbox" ${a.enabled?'checked':''} onchange="toggleAlertEnabled(${a.id},this.checked,'${code}')">
+                <span style="flex:1;color:#ccc;">${typeLabels[a.alert_type]||a.alert_type} ${formatAlertParams(a.alert_type,a.params)}</span>
+                <span style="font-size:9px;color:#6b7a8d;">${a.repeat_mode==='once'?'一次':'持續'}</span>
+                <span onclick="deleteAlertItem(${a.id},'${code}')" style="color:#ef5350;cursor:pointer;">✕</span>
+            </div>`).join(''):'<div style="color:#6b7a8d;padding:4px;">尚無警示條件</div>'}
+        </div>
+        <div style="margin-top:12px;padding-top:8px;border-top:1px solid #2a2d38;">
+            <div style="font-weight:600;color:#8b9dc3;margin-bottom:4px;">全域設定</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+                <label>每日執行 <input type="text" id="alertRunTime" value="${settings.run_time}" style="width:50px;" placeholder="HH:MM"></label>
+                <label>TG Chat ID <input type="text" id="alertTgChat" value="${settings.telegram_chat_id||''}" style="width:90px;"></label>
+                <label>TG Token <input type="text" id="alertTgToken" value="${settings.telegram_bot_token||''}" style="width:120px;"></label>
+                <button class="btn btn-s" onclick="saveAlertSettings()" style="font-size:10px;padding:2px 6px;">儲存</button>
+            </div>
+        </div>
+    `;
+    onAlertTypeChange();
+}
+function onAlertTypeChange(){
+    const t=document.getElementById('alertType').value;
+    const area=document.getElementById('alertParamsArea');
+    if(t==='price_above'||t==='price_below') area.innerHTML='<input type="number" id="alertParam1" placeholder="價格" style="width:60px;">';
+    else if(t==='change_pct_up'||t==='change_pct_down') area.innerHTML='<input type="number" id="alertParam1" placeholder="%" step="0.1" style="width:50px;">';
+    else if(t==='ma_cross_up'||t==='ma_cross_down') area.innerHTML='短<input type="number" id="alertParam1" value="5" style="width:35px;">長<input type="number" id="alertParam2" value="20" style="width:35px;">';
+    else if(t==='volume') area.innerHTML='<input type="number" id="alertParam1" placeholder="倍" value="2" step="0.5" style="width:45px;">倍';
+}
+function formatAlertParams(type,params){
+    if(type==='price_above'||type==='price_below') return params.threshold||'';
+    if(type==='change_pct_up'||type==='change_pct_down') return (params.threshold||'')+'%';
+    if(type==='ma_cross_up'||type==='ma_cross_down') return `MA${params.short_period||5}/MA${params.long_period||20}`;
+    if(type==='volume') return (params.multiplier||'')+'倍均量';
+    return JSON.stringify(params);
+}
+async function addAlertItem(code){
+    const t=document.getElementById('alertType').value;
+    const rep=document.getElementById('alertRepeat').value;
+    let params={};
+    if(t==='price_above'||t==='price_below') params={threshold:+document.getElementById('alertParam1').value};
+    else if(t==='change_pct_up'||t==='change_pct_down') params={threshold:+document.getElementById('alertParam1').value};
+    else if(t==='ma_cross_up'||t==='ma_cross_down') params={short_period:+document.getElementById('alertParam1').value,long_period:+document.getElementById('alertParam2').value};
+    else if(t==='volume') params={multiplier:+document.getElementById('alertParam1').value};
+    await fetch('/api/alerts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stock_code:code,alert_type:t,params,repeat_mode:rep,user:currentUser})});
+    renderAlertPanel(code);
+}
+async function deleteAlertItem(id,code){
+    await fetch(U(`/api/alerts/${id}`),{method:'DELETE'});
+    renderAlertPanel(code);
+}
+async function toggleAlertEnabled(id,enabled,code){
+    await fetch(`/api/alerts/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:currentUser,enabled})});
+    renderAlertPanel(code);
+}
+async function saveAlertSettings(){
+    const body={user:currentUser,run_time:document.getElementById('alertRunTime').value,telegram_chat_id:document.getElementById('alertTgChat').value,telegram_bot_token:document.getElementById('alertTgToken').value};
+    await fetch('/api/alerts/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    alert('警示設定已儲存');
+}
+// Drag support for alert panel
+(function(){
+    const header=document.getElementById('floatAlertHeader');
+    const win=document.getElementById('floatAlert');
+    let dragging=false,ox=0,oy=0;
+    header.addEventListener('mousedown',e=>{dragging=true;ox=e.clientX-win.offsetLeft;oy=e.clientY-win.offsetTop;});
+    document.addEventListener('mousemove',e=>{if(!dragging)return;win.style.left=(e.clientX-ox)+'px';win.style.top=(e.clientY-oy)+'px';win.style.transform='none';});
+    document.addEventListener('mouseup',()=>{dragging=false;});
+})();
+
 async function addGroup(){const n=prompt('輸入新分組名稱');if(!n||!n.trim())return;await fetch(U(`/api/watchlist/group?name=${encodeURIComponent(n.trim())}`),{method:'POST'});loadWatchlist();}
 async function renameGroup(old){const n=prompt('新名稱',old);if(n&&n.trim()&&n!==old)await fetch(U(`/api/watchlist/group/rename?old=${encodeURIComponent(old)}&new=${encodeURIComponent(n.trim())}`),{method:'PUT'}).then(()=>loadWatchlist());}
 async function delGroup(g){if(confirm(`刪除分組「${g}」及其所有股票？`))await fetch(U(`/api/watchlist/group/${encodeURIComponent(g)}`),{method:'DELETE'}).then(()=>loadWatchlist());}
@@ -799,6 +925,30 @@ renderMASettings();
 loadWatchlist();
 loadHot();
 initDrawing();
+
+// --- Alert Notification Polling ---
+if('Notification' in window && Notification.permission==='default') Notification.requestPermission();
+function showToast(msg){
+    const t=document.createElement('div');
+    t.style.cssText='position:fixed;bottom:20px;right:20px;background:#1a1d28;border:1px solid #ffeb3b;color:#e1e5ea;padding:10px 16px;border-radius:6px;font-size:12px;z-index:99999;box-shadow:0 4px 16px rgba(0,0,0,0.5);max-width:320px;';
+    t.textContent=msg;
+    document.body.appendChild(t);
+    setTimeout(()=>t.remove(),6000);
+}
+async function pollAlerts(){
+    if(currentUser==='default')return;
+    try{
+        const res=await fetch(U('/api/alerts/triggered'));
+        const items=await res.json();
+        items.forEach(a=>{
+            showToast(a.message);
+            if('Notification' in window && Notification.permission==='granted'){
+                new Notification('ProTech 警示',{body:a.message,icon:'📈'});
+            }
+        });
+    }catch(e){}
+}
+setInterval(pollAlerts,30000);
 </script>
 </body>
 </html>
