@@ -30,6 +30,7 @@ def startup():
     import asyncio
     asyncio.get_event_loop().create_task(_daily_rank_job())
     asyncio.get_event_loop().create_task(_daily_alert_job())
+    asyncio.get_event_loop().create_task(_daily_us_index_job())
 
 
 async def _daily_rank_job():
@@ -102,6 +103,37 @@ def api_get_triggered(user: str = Query("default")):
     for r in results:
         _triggered_alerts.remove(r)
     return results
+
+
+async def _daily_us_index_job():
+    """Fetch US index data daily at 07:00 (after US market close)."""
+    import asyncio
+    from datetime import datetime, timedelta
+    while True:
+        now = datetime.now()
+        target = now.replace(hour=7, minute=0, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+        await asyncio.sleep((target - now).total_seconds())
+        try:
+            from src.services.us_index_service import fetch_all_us_indices
+            fetch_all_us_indices("5d")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"US index job error: {e}")
+
+
+# --- US Index API ---
+
+@app.get("/api/usindex/{symbol}/kline")
+def api_us_index_kline(symbol: str, period: str = Query("daily"), days: int = Query(120)):
+    from src.services.us_index_service import get_us_index_kline, get_us_index_weekly, get_us_index_monthly
+    sym = symbol.upper().replace("^", "")
+    if period == "weekly":
+        return get_us_index_weekly(sym, days)
+    elif period == "monthly":
+        return get_us_index_monthly(sym, days)
+    return get_us_index_kline(sym, days)
 
 
 @app.get("/", response_class=HTMLResponse)
