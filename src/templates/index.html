@@ -176,11 +176,10 @@
 
     <!-- News Notes -->
     <div class="panel full-width">
-        <div class="panel-header" onclick="toggleNewsNotes()" style="cursor:pointer;">
+        <div class="panel-header">
             <h2>📋 新聞備註</h2>
-            <span id="newsNotesToggle" style="color:#8b9dc3;font-size:11px;">▸ 展開</span>
         </div>
-        <div id="newsNotesContent" style="display:none;padding:10px 14px;">
+        <div style="padding:10px 14px;">
             <div style="display:flex;gap:4px;margin-bottom:8px;align-items:center;">
                 <input type="date" id="newsNoteDate" style="padding:5px 8px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;">
                 <input type="text" id="newsNoteInput" placeholder="輸入新聞備註..." style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;">
@@ -1110,20 +1109,9 @@ loadHot();
 initDrawing();
 // Set default date to today
 document.getElementById('newsNoteDate').value=new Date().toISOString().slice(0,10);
+loadNewsNotes();
 
 // --- News Notes ---
-function toggleNewsNotes(){
-    const el=document.getElementById('newsNotesContent');
-    const toggle=document.getElementById('newsNotesToggle');
-    if(el.style.display==='none'){
-        el.style.display='block';
-        toggle.textContent='▾ 收合';
-        loadNewsNotes();
-    } else {
-        el.style.display='none';
-        toggle.textContent='▸ 展開';
-    }
-}
 async function loadNewsNotes(){
     const el=document.getElementById('newsNotesList');
     const notes=await fetch(U('/api/watchlist/NEWS/notes')).then(r=>r.json());
@@ -1136,17 +1124,18 @@ async function loadNewsNotes(){
         groups[d].push(n);
     });
     const sortedDates=Object.keys(groups).sort((a,b)=>b.localeCompare(a));
-    el.innerHTML=sortedDates.map(date=>`
+    el.innerHTML=sortedDates.map((date,di)=>`
         <div style="margin-bottom:8px;">
-            <div style="font-size:12px;font-weight:600;color:#ffb74d;padding:4px 0;border-bottom:1px solid #3a3d48;margin-bottom:4px;">📅 ${date}</div>
-            ${groups[date].map(n=>`<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:4px 8px;">
-                <div style="flex:1;font-size:11px;color:#ccc;">
-                    ${n.content?`<span>${n.content.replace(/</g,'&lt;')}</span>`:''}
-                    ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:200px;max-height:120px;border-radius:4px;display:block;margin-top:4px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:''}
-                    <div style="font-size:9px;color:#6b7a8d;margin-top:2px;">${n.created_at}</div>
-                </div>
-                <span onclick="delNewsNote(${n.id})" style="color:#ef5350;cursor:pointer;font-size:11px;">✕</span>
-            </div>`).join('')}
+            <div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none';this.querySelector('.nn-arrow').textContent=this.nextElementSibling.style.display==='none'?'▸':'▾'" style="font-size:12px;font-weight:600;color:#ffb74d;padding:6px 4px;border-bottom:1px solid #3a3d48;cursor:pointer;user-select:none;"><span class="nn-arrow">${di===0?'▾':'▸'}</span> 📅 ${date} (${groups[date].length})</div>
+            <div style="${di===0?'':'display:none;'}">
+                ${groups[date].map(n=>`<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:4px 8px;">
+                    <div style="flex:1;font-size:11px;color:#ccc;">
+                        ${n.content?`<span>${n.content.replace(/</g,'&lt;')}</span>`:''}
+                        ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:200px;max-height:120px;border-radius:4px;display:block;margin-top:4px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:''}
+                    </div>
+                    <span onclick="delNewsNote(${n.id})" style="color:#ef5350;cursor:pointer;font-size:11px;">✕</span>
+                </div>`).join('')}
+            </div>
         </div>
     `).join('');
 }
