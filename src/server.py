@@ -400,6 +400,18 @@ async def api_add_note(code: str, user: str = Query("default"),
     image_data = None
     if image and image.filename:
         image_data = await image.read()
+        # OCR: auto extract text from image if content is empty
+        if not content and image_data:
+            try:
+                import pytesseract
+                from PIL import Image
+                import io
+                img = Image.open(io.BytesIO(image_data))
+                ocr_text = pytesseract.image_to_string(img, lang='chi_tra+eng').strip()
+                if ocr_text:
+                    content = ocr_text[:200]  # 取前 200 字作為標題
+            except Exception:
+                pass
     add_note(code, content, "", user, image_data, news_date if news_date else None)
     return {"ok": True}
 

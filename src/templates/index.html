@@ -186,6 +186,10 @@
                 <label class="btn btn-s" style="cursor:pointer;">📎<input type="file" accept="image/*" multiple style="display:none;" onchange="uploadNewsNote(this.files)"></label>
                 <button class="btn btn-p" onclick="submitNewsNote()">送出</button>
             </div>
+            <div style="display:flex;gap:4px;margin-bottom:8px;align-items:center;">
+                <input type="text" id="newsNoteSearch" placeholder="🔍 搜尋備註內容..." style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;" oninput="searchNewsNotes()">
+                <button class="btn btn-s" onclick="document.getElementById('newsNoteSearch').value='';searchNewsNotes();" style="font-size:10px;padding:4px 8px;">清除</button>
+            </div>
             <div id="newsNotesList"></div>
         </div>
     </div>
@@ -1128,7 +1132,7 @@ async function loadNewsNotes(){
         <div style="margin-bottom:8px;">
             <div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none';this.querySelector('.nn-arrow').textContent=this.nextElementSibling.style.display==='none'?'▸':'▾'" style="font-size:12px;font-weight:600;color:#ffb74d;padding:6px 4px;border-bottom:1px solid #3a3d48;cursor:pointer;user-select:none;"><span class="nn-arrow">${di===0?'▾':'▸'}</span> 📅 ${date} (${groups[date].length})</div>
             <div style="${di===0?'':'display:none;'}">
-                ${groups[date].map(n=>`<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:4px 8px;">
+                ${groups[date].map(n=>`<div data-note="${(n.content||'').replace(/"/g,'')}" style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:4px 8px;">
                     <div style="flex:1;font-size:11px;color:#ccc;">
                         ${n.content?`<span>${n.content.replace(/</g,'&lt;')}</span>`:''}
                         ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:200px;max-height:120px;border-radius:4px;display:block;margin-top:4px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:''}
@@ -1159,6 +1163,23 @@ async function uploadNewsNote(files){
 async function delNewsNote(id){
     await fetch(U(`/api/watchlist/notes/${id}`),{method:'DELETE'});
     loadNewsNotes();
+}
+function searchNewsNotes(){
+    const q=document.getElementById('newsNoteSearch').value.trim().toLowerCase();
+    const list=document.getElementById('newsNotesList');
+    list.querySelectorAll('[data-note]').forEach(el=>{
+        el.style.display=(!q||el.dataset.note.toLowerCase().includes(q))?'':'none';
+    });
+    // Show/hide date group headers based on visible children
+    list.querySelectorAll('[data-note]').forEach(el=>{
+        const parent=el.parentElement;
+        if(parent){
+            const visible=[...parent.querySelectorAll('[data-note]')].some(c=>c.style.display!=='none');
+            const header=parent.previousElementSibling;
+            if(header)header.style.display=visible?'':'none';
+            parent.style.display=visible?'':'none';
+        }
+    });
 }
 
 // --- Alert Notification Polling ---
