@@ -6,7 +6,7 @@ from psycopg2.extras import RealDictCursor
 
 DB_CONFIG = {
     "host": os.getenv("PGHOST", "blog.softsnail.com"),
-    "port": int(os.getenv("PGPORT", 2432)),
+    "port": int(os.getenv("PGPORT", 1432)),
     "user": os.getenv("PGUSER", "reef"),
     "password": os.getenv("PGPASSWORD", "accton123"),
     "database": os.getenv("PGDATABASE", "twsestock"),
