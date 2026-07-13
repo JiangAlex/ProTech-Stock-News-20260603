@@ -190,6 +190,16 @@ def get_note_image(note_id):
         conn.close()
 
 
+def update_note_content(note_id, content, user_id="default"):
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE watchlist_notes SET content = %s WHERE id = %s AND user_id = %s", (content, note_id, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 # --- Groups ---
 
 def rename_group(old_name, new_name, user_id="default"):

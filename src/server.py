@@ -239,6 +239,15 @@ def api_get_note_image(note_id: int):
     return Response(content=data, media_type="image/png")
 
 
+@app.put("/api/watchlist/notes/{note_id}/content")
+def api_update_note_content(note_id: int, body: dict):
+    user = body.get("user", "default")
+    content = body.get("content", "")
+    from src.core.database import update_note_content
+    update_note_content(note_id, content, user)
+    return {"ok": True}
+
+
 # --- Alerts ---
 
 @app.get("/api/alerts")

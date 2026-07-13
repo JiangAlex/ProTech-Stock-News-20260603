@@ -1137,6 +1137,7 @@ async function loadNewsNotes(){
                         ${n.content?`<span>${n.content.replace(/</g,'&lt;')}</span>`:''}
                         ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:200px;max-height:120px;border-radius:4px;display:block;margin-top:4px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:''}
                     </div>
+                    <span onclick="editNewsNote(${n.id},'${(n.content||'').replace(/'/g,"\\'").replace(/\n/g,' ')}')" style="color:#4fc3f7;cursor:pointer;font-size:11px;" title="編輯">✎</span>
                     <span onclick="delNewsNote(${n.id})" style="color:#ef5350;cursor:pointer;font-size:11px;">✕</span>
                 </div>`).join('')}
             </div>
@@ -1162,6 +1163,12 @@ async function uploadNewsNote(files){
 }
 async function delNewsNote(id){
     await fetch(U(`/api/watchlist/notes/${id}`),{method:'DELETE'});
+    loadNewsNotes();
+}
+async function editNewsNote(id, oldContent){
+    const newContent=prompt('修改備註內容：', oldContent);
+    if(newContent===null)return;
+    await fetch(`/api/watchlist/notes/${id}/content`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:newContent,user:currentUser})});
     loadNewsNotes();
 }
 function searchNewsNotes(){
