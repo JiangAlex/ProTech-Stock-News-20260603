@@ -296,6 +296,14 @@ def api_delete_alert(alert_id: int, user: str = Query("default")):
     return {"ok": True}
 
 
+# --- Semantic Search ---
+
+@app.get("/api/notes/search")
+def api_search_notes(q: str = Query(""), user: str = Query("default"), ai: bool = Query(True)):
+    from src.services.semantic_search import search_notes
+    return search_notes(q, user, use_ai=ai)
+
+
 # --- Backtest ---
 
 @app.post("/api/backtest")

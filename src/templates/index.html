@@ -188,7 +188,8 @@
             </div>
             <div style="display:flex;gap:4px;margin-bottom:8px;align-items:center;">
                 <input type="text" id="newsNoteSearch" placeholder="🔍 搜尋備註內容..." style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;" oninput="searchNewsNotes()">
-                <button class="btn btn-s" onclick="document.getElementById('newsNoteSearch').value='';searchNewsNotes();" style="font-size:10px;padding:4px 8px;">清除</button>
+                <button class="btn btn-s" onclick="aiSearchNotes()" style="font-size:10px;padding:4px 8px;">🤖 AI搜尋</button>
+                <button class="btn btn-s" onclick="document.getElementById('newsNoteSearch').value='';loadNewsNotes();" style="font-size:10px;padding:4px 8px;">清除</button>
             </div>
             <div id="newsNotesList"></div>
         </div>
@@ -1187,6 +1188,37 @@ function searchNewsNotes(){
             parent.style.display=visible?'':'none';
         }
     });
+}
+async function aiSearchNotes(){
+    const q=document.getElementById('newsNoteSearch').value.trim();
+    if(!q)return;
+    const el=document.getElementById('newsNotesList');
+    el.innerHTML='<div style="color:#4fc3f7;font-size:11px;">🤖 AI 搜尋中...</div>';
+    try{
+        const r=await fetch(`/api/notes/search?q=${encodeURIComponent(q)}&user=${encodeURIComponent(currentUser)}&ai=true`);
+        const data=await r.json();
+        const keywords=data.keywords||[];
+        const notes=data.results||[];
+        let html=`<div style="font-size:10px;color:#8b9dc3;margin-bottom:6px;">AI 擴展關鍵詞：${keywords.join('、')}</div>`;
+        if(!notes.length){html+='<div style="color:#6b7a8d;font-size:11px;">無符合結果</div>';}
+        else{
+            // Group by date
+            const groups={};
+            notes.forEach(n=>{const d=n.news_date||'未分類';if(!groups[d])groups[d]=[];groups[d].push(n);});
+            const sortedDates=Object.keys(groups).sort((a,b)=>b.localeCompare(a));
+            html+=sortedDates.map(date=>`
+                <div style="margin-bottom:8px;">
+                    <div style="font-size:12px;font-weight:600;color:#ffb74d;padding:4px 0;border-bottom:1px solid #3a3d48;">📅 ${date} (${groups[date].length})</div>
+                    ${groups[date].map(n=>`<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:4px 8px;">
+                        <div style="flex:1;font-size:11px;color:#ccc;">
+                            ${n.content?`<span>${n.content.replace(/</g,'&lt;')}</span>`:''}
+                            ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:200px;max-height:120px;border-radius:4px;display:block;margin-top:4px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:''}
+                        </div>
+                    </div>`).join('')}
+                </div>`).join('');
+        }
+        el.innerHTML=html;
+    }catch(e){el.innerHTML='<div style="color:#ef5350;">搜尋失敗</div>';}
 }
 
 // --- Alert Notification Polling ---
