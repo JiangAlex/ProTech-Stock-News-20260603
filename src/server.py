@@ -415,7 +415,20 @@ async def api_add_note(code: str, user: str = Query("default"),
                        content: str = Form(""), image: UploadFile = File(None),
                        news_date: str = Form("")):
     image_data = None
+    image_filename = ""
     if image and image.filename:
+        image_filename = image.filename
+        # Check duplicate filename
+        import psycopg2
+        from src.core.pg_client import DB_CONFIG
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM watchlist_notes WHERE stock_code=%s AND user_id=%s AND image_filename=%s",
+                    (code, user, image_filename))
+        if cur.fetchone():
+            conn.close()
+            return {"ok": False, "error": "duplicate", "filename": image_filename}
+        conn.close()
         image_data = await image.read()
         # OCR: auto extract text from image if content is empty
         if not content and image_data:
@@ -426,10 +439,10 @@ async def api_add_note(code: str, user: str = Query("default"),
                 img = Image.open(io.BytesIO(image_data))
                 ocr_text = pytesseract.image_to_string(img, lang='chi_tra+eng').strip()
                 if ocr_text:
-                    content = ocr_text[:200]  # 取前 200 字作為標題
+                    content = ocr_text[:200]
             except Exception:
                 pass
-    add_note(code, content, "", user, image_data, news_date if news_date else None)
+    add_note(code, content, "", user, image_data, news_date if news_date else None, image_filename)
     return {"ok": True}
 
 

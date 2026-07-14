@@ -1156,10 +1156,14 @@ async function submitNewsNote(){
 async function uploadNewsNote(files){
     if(!files||!files.length)return;
     const dateInp=document.getElementById('newsNoteDate');
+    let skipped=[];
     for(const file of files){
         const fd=new FormData();fd.append('content','');fd.append('image',file);fd.append('news_date',dateInp.value);
-        await fetch(U('/api/watchlist/NEWS/notes'),{method:'POST',body:fd});
+        const r=await fetch(U('/api/watchlist/NEWS/notes'),{method:'POST',body:fd});
+        const res=await r.json();
+        if(res.error==='duplicate') skipped.push(file.name);
     }
+    if(skipped.length) alert('以下檔案已存在，跳過上傳：\n'+skipped.join('\n'));
     loadNewsNotes();
 }
 async function delNewsNote(id){

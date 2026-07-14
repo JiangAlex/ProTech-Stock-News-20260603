@@ -154,13 +154,13 @@ def get_notes(stock_code, user_id="default"):
         conn.close()
 
 
-def add_note(stock_code, content="", image_path="", user_id="default", image_data=None, news_date=None):
+def add_note(stock_code, content="", image_path="", user_id="default", image_data=None, news_date=None, image_filename=""):
     conn = _conn()
     try:
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO watchlist_notes (stock_code, content, image_path, user_id, image_data, news_date) VALUES (%s, %s, %s, %s, %s, %s)",
-            (stock_code, content, image_path, user_id, psycopg2.Binary(image_data) if image_data else None, news_date))
+            "INSERT INTO watchlist_notes (stock_code, content, image_path, user_id, image_data, news_date, image_filename) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (stock_code, content, image_path, user_id, psycopg2.Binary(image_data) if image_data else None, news_date, image_filename or None))
         conn.commit()
     finally:
         conn.close()
