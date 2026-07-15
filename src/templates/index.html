@@ -239,6 +239,7 @@ function switchUser(name){
     localStorage.setItem('protech_user',name);
     document.getElementById('userInput').value=name==='default'?'':name;
     loadWatchlist();
+    loadNewsNotes();
 }
 
 // --- Settings ---
@@ -1119,6 +1120,7 @@ loadNewsNotes();
 // --- News Notes ---
 async function loadNewsNotes(){
     const el=document.getElementById('newsNotesList');
+    if(currentUser==='default'){el.innerHTML='';return;}
     const notes=await fetch(U('/api/watchlist/NEWS/notes')).then(r=>r.json());
     if(!notes.length){el.innerHTML='<div style="color:#6b7a8d;font-size:11px;">尚無備註</div>';return;}
     // Group by news_date
@@ -1131,8 +1133,8 @@ async function loadNewsNotes(){
     const sortedDates=Object.keys(groups).sort((a,b)=>b.localeCompare(a));
     el.innerHTML=sortedDates.map((date,di)=>`
         <div style="margin-bottom:8px;">
-            <div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none';this.querySelector('.nn-arrow').textContent=this.nextElementSibling.style.display==='none'?'▸':'▾'" style="font-size:12px;font-weight:600;color:#ffb74d;padding:6px 4px;border-bottom:1px solid #3a3d48;cursor:pointer;user-select:none;"><span class="nn-arrow">${di===0?'▾':'▸'}</span> 📅 ${date} (${groups[date].length})</div>
-            <div style="${di===0?'':'display:none;'}">
+            <div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none';this.querySelector('.nn-arrow').textContent=this.nextElementSibling.style.display==='none'?'▸':'▾'" style="font-size:12px;font-weight:600;color:#ffb74d;padding:6px 4px;border-bottom:1px solid #3a3d48;cursor:pointer;user-select:none;"><span class="nn-arrow">▸</span> 📅 ${date} (${groups[date].length})</div>
+            <div style="display:none;">
                 ${groups[date].map(n=>`<div data-note="${(n.content||'').replace(/"/g,'')}" style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:4px 8px;">
                     <div style="flex:1;font-size:11px;color:#ccc;">
                         ${n.content?`<span>${n.content.replace(/</g,'&lt;')}</span>`:''}
