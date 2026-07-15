@@ -99,10 +99,6 @@
         <div id="maSettings"></div>
         <button class="btn btn-s" onclick="addMA()" style="font-size:11px;">+ 新增</button>
     </div>
-    <div class="settings-row">
-        <strong>自選股：</strong>
-        <span id="watchlistInline" style="color:#66bb6a;"></span>
-    </div>
 </div>
 
 <div class="container">
@@ -590,7 +586,6 @@ async function loadWatchlist(){
     const p=document.getElementById('watchlistPanel');
     if(currentUser==='default'){
         p.innerHTML='<div class="loading" style="color:#ff9800;">請在右上角輸入使用者名稱</div>';
-        document.getElementById('watchlistInline').textContent='';
         return;
     }
     const [r, gr, br, tr]=await Promise.all([fetch(U('/api/watchlist')),fetch(U('/api/watchlist/groups')),fetch(U('/api/watchlist/balance')),fetch(U('/api/watchlist/trades'))]);
@@ -598,8 +593,6 @@ async function loadWatchlist(){
     const emptyGroups=await gr.json();
     const {balance}=await br.json();
     const allTrades=await tr.json();
-    const il=document.getElementById('watchlistInline');
-
     // Group trades by stock_code
     const tradesByCode={};
     allTrades.forEach(t=>{if(!tradesByCode[t.stock_code])tradesByCode[t.stock_code]=[];tradesByCode[t.stock_code].push(t);});
@@ -632,8 +625,6 @@ async function loadWatchlist(){
     list.forEach(s=>{const g=s.group_name||'預設';if(!groups[g])groups[g]=[];groups[g].push(s);});
     const groupNames=Object.keys(groups);
     watchGroups={}; groupNames.forEach(g=>watchGroups[g]=groups[g].map(s=>s.stock_code));
-    il.textContent=list.map(s=>s.stock_code).join(', ');
-
     // Summary header
     let html=`<div style="padding:8px 14px;border-bottom:1px solid #2a2d38;font-size:11px;display:flex;flex-wrap:wrap;gap:8px;background:#14161e;">
         <span>💰 餘額: <b style="color:#4fc3f7">${Math.round(balance).toLocaleString()}</b></span>
