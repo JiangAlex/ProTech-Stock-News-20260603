@@ -99,6 +99,10 @@
         <div id="maSettings"></div>
         <button class="btn btn-s" onclick="addMA()" style="font-size:11px;">+ 新增</button>
     </div>
+    <div class="settings-row">
+        <strong>日資訊：</strong>
+        <label><input type="checkbox" id="chkDayInfo" checked onchange="renderDayInfo()"> 顯示當日最高/最低/漲跌幅</label>
+    </div>
 </div>
 
 <div class="container">
@@ -128,6 +132,7 @@
                 <button class="btn btn-s" onclick="closeStock()">✕</button>
             </div>
         </div>
+        <div id="dayInfoBar" style="padding:4px 14px;font-size:12px;color:#e1e5ea;display:flex;gap:16px;background:#14161e;border-bottom:1px solid #2a2d38;"></div>
         <div class="chart-container" id="chartContainer"></div>
         <!-- Fundamental charts -->
         <div class="fund-charts" id="fundCharts">
@@ -302,6 +307,25 @@ async function reloadChart(){
     const r=await fetch(url);
     lastData=await r.json();
     renderChart(lastData);
+    renderDayInfo();
+}
+
+function renderDayInfo(){
+    const bar=document.getElementById('dayInfoBar');
+    const show=document.getElementById('chkDayInfo')?.checked;
+    if(!show||!lastData||!lastData.length){bar.innerHTML='';return;}
+    const d=lastData[lastData.length-1];
+    const prev=lastData.length>1?lastData[lastData.length-2]:null;
+    const change=prev?(d.close-prev.close):0;
+    const changePct=prev&&prev.close>0?((change/prev.close)*100):0;
+    const color=change>=0?'#ef5350':'#26a69a';
+    bar.innerHTML=`
+        <span>收盤: <b style="color:${color}">${d.close}</b></span>
+        <span>最高: <b style="color:#ef5350">${d.high}</b></span>
+        <span>最低: <b style="color:#26a69a">${d.low}</b></span>
+        <span>漲跌: <b style="color:${color}">${change>=0?'+':''}${change.toFixed(2)} (${changePct>=0?'+':''}${changePct.toFixed(2)}%)</b></span>
+        <span>成交量: <b>${d.volume?d.volume.toLocaleString():'-'}</b></span>
+    `;
 }
 
 function closeStock(){ document.getElementById('stockPanel').style.display='none'; currentCode=''; drawLines=[];drawTexts=[]; document.getElementById('btnClearLines').style.display='none'; document.getElementById('newsLink').href='https://tw.stock.yahoo.com/tw-market/'; document.getElementById('newsLink').textContent='開啟台股新聞 →'; }
