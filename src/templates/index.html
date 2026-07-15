@@ -1215,7 +1215,7 @@ async function aiSearchNotes(){
         // Sources
         if(sources.length){
             html+=`<div style="font-size:10px;color:#8b9dc3;margin-bottom:4px;">參考來源 (${sources.length} 筆)：</div>`;
-            html+=sources.map(s=>`<div style="font-size:10px;color:#6b7a8d;padding:2px 8px;">• [${s.news_date||''}] ${s.content||''}</div>`).join('');
+            html+=sources.map(s=>`<div style="font-size:10px;color:#6b7a8d;padding:2px 8px;cursor:pointer;" onmouseover="this.style.color='#4fc3f7'" onmouseout="this.style.color='#6b7a8d'" onclick="window.open('/api/watchlist/notes/${s.id}/image','_blank')">• [${s.news_date||''}] ${s.content||''}</div>`).join('');
         }
         el.innerHTML=html;
     }catch(e){el.innerHTML='<div style="color:#ef5350;">AI 搜尋失敗</div>';}
