@@ -1145,7 +1145,9 @@ async function loadNewsNotes(){
         groups[d].push(n);
     });
     const sortedDates=Object.keys(groups).sort((a,b)=>b.localeCompare(a));
-    el.innerHTML=sortedDates.map((date,di)=>`
+    const showDates=sortedDates.slice(0,5);
+    const moreDates=sortedDates.slice(5);
+    el.innerHTML=showDates.map((date,di)=>`
         <div style="margin-bottom:8px;">
             <div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none';this.querySelector('.nn-arrow').textContent=this.nextElementSibling.style.display==='none'?'▸':'▾'" style="font-size:12px;font-weight:600;color:#ffb74d;padding:6px 4px;border-bottom:1px solid #3a3d48;cursor:pointer;user-select:none;"><span class="nn-arrow">▸</span> 📅 ${date} (${groups[date].length})</div>
             <div style="display:none;">
@@ -1159,7 +1161,18 @@ async function loadNewsNotes(){
                 </div>`).join('')}
             </div>
         </div>
-    `).join('');
+    `).join('')+(moreDates.length?`<div id="newsNotesMore" style="display:none;">${moreDates.map(date=>`
+        <div style="margin-bottom:8px;">
+            <div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none';this.querySelector('.nn-arrow').textContent=this.nextElementSibling.style.display==='none'?'▸':'▾'" style="font-size:12px;font-weight:600;color:#ffb74d;padding:6px 4px;border-bottom:1px solid #3a3d48;cursor:pointer;user-select:none;"><span class="nn-arrow">▸</span> 📅 ${date} (${groups[date].length})</div>
+            <div style="display:none;">${groups[date].map(n=>`<div data-note="${(n.content||'').replace(/"/g,'')}" style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:4px 8px;">
+                    <div style="flex:1;font-size:11px;color:#ccc;">
+                        ${n.content?`<span>${n.content.replace(/</g,'&lt;')}</span>`:''}
+                        ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:200px;max-height:120px;border-radius:4px;display:block;margin-top:4px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:''}
+                    </div>
+                    <span onclick="editNewsNote(${n.id},'${(n.content||'').replace(/'/g,"\\'").replace(/\n/g,' ')}')" style="color:#4fc3f7;cursor:pointer;font-size:11px;" title="編輯">✎</span>
+                    <span onclick="delNewsNote(${n.id})" style="color:#ef5350;cursor:pointer;font-size:11px;">✕</span>
+                </div>`).join('')}</div>
+        </div>`).join('')}</div><button class="btn btn-s" onclick="document.getElementById('newsNotesMore').style.display='block';this.style.display='none';" style="font-size:10px;padding:4px 8px;margin-top:4px;">顯示更多 (${moreDates.length} 天)</button>`:'');
 }
 async function submitNewsNote(){
     const inp=document.getElementById('newsNoteInput');
