@@ -1120,8 +1120,7 @@ loadNewsNotes();
 // --- News Notes ---
 async function loadNewsNotes(){
     const el=document.getElementById('newsNotesList');
-    if(currentUser==='default'){el.innerHTML='';return;}
-    const notes=await fetch(U('/api/watchlist/NEWS/notes')).then(r=>r.json());
+    const notes=await fetch('/api/watchlist/NEWS/notes?user=shared').then(r=>r.json());
     if(!notes.length){el.innerHTML='<div style="color:#6b7a8d;font-size:11px;">尚無備註</div>';return;}
     // Group by news_date
     const groups={};
@@ -1152,7 +1151,7 @@ async function submitNewsNote(){
     const dateInp=document.getElementById('newsNoteDate');
     const v=inp.value.trim();if(!v)return;
     const fd=new FormData();fd.append('content',v);fd.append('news_date',dateInp.value);
-    await fetch(U('/api/watchlist/NEWS/notes'),{method:'POST',body:fd});
+    await fetch('/api/watchlist/NEWS/notes?user=shared',{method:'POST',body:fd});
     inp.value='';loadNewsNotes();
 }
 async function uploadNewsNote(files){
@@ -1161,7 +1160,7 @@ async function uploadNewsNote(files){
     let skipped=[];
     for(const file of files){
         const fd=new FormData();fd.append('content','');fd.append('image',file);fd.append('news_date',dateInp.value);
-        const r=await fetch(U('/api/watchlist/NEWS/notes'),{method:'POST',body:fd});
+        const r=await fetch('/api/watchlist/NEWS/notes?user=shared',{method:'POST',body:fd});
         const res=await r.json();
         if(res.error==='duplicate') skipped.push(file.name);
     }
@@ -1169,13 +1168,13 @@ async function uploadNewsNote(files){
     loadNewsNotes();
 }
 async function delNewsNote(id){
-    await fetch(U(`/api/watchlist/notes/${id}`),{method:'DELETE'});
+    await fetch('/api/watchlist/notes/'+id+'?user=shared',{method:'DELETE'});
     loadNewsNotes();
 }
 async function editNewsNote(id, oldContent){
     const newContent=prompt('修改備註內容：', oldContent);
     if(newContent===null)return;
-    await fetch(`/api/watchlist/notes/${id}/content`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:newContent,user:currentUser})});
+    await fetch(`/api/watchlist/notes/${id}/content`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:newContent,user:'shared'})});
     loadNewsNotes();
 }
 function searchNewsNotes(){
@@ -1201,7 +1200,7 @@ async function aiSearchNotes(){
     const el=document.getElementById('newsNotesList');
     el.innerHTML='<div style="color:#4fc3f7;font-size:11px;">🤖 AI 分析中（約 10-20 秒）...</div>';
     try{
-        const r=await fetch(`/api/notes/ask?q=${encodeURIComponent(q)}&user=${encodeURIComponent(currentUser)}`);
+        const r=await fetch(`/api/notes/ask?q=${encodeURIComponent(q)}&user=shared`);
         const data=await r.json();
         const keywords=data.keywords||[];
         const sources=data.sources||[];
