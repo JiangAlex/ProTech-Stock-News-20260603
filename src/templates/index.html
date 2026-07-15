@@ -1197,32 +1197,26 @@ async function aiSearchNotes(){
     const q=document.getElementById('newsNoteSearch').value.trim();
     if(!q)return;
     const el=document.getElementById('newsNotesList');
-    el.innerHTML='<div style="color:#4fc3f7;font-size:11px;">🤖 AI 搜尋中...</div>';
+    el.innerHTML='<div style="color:#4fc3f7;font-size:11px;">🤖 AI 分析中（約 10-20 秒）...</div>';
     try{
-        const r=await fetch(`/api/notes/search?q=${encodeURIComponent(q)}&user=${encodeURIComponent(currentUser)}&ai=true`);
+        const r=await fetch(`/api/notes/ask?q=${encodeURIComponent(q)}&user=${encodeURIComponent(currentUser)}`);
         const data=await r.json();
         const keywords=data.keywords||[];
-        const notes=data.results||[];
+        const sources=data.sources||[];
+        const answer=data.answer||'';
         let html=`<div style="font-size:10px;color:#8b9dc3;margin-bottom:6px;">AI 擴展關鍵詞：${keywords.join('、')}</div>`;
-        if(!notes.length){html+='<div style="color:#6b7a8d;font-size:11px;">無符合結果</div>';}
-        else{
-            // Group by date
-            const groups={};
-            notes.forEach(n=>{const d=n.news_date||'未分類';if(!groups[d])groups[d]=[];groups[d].push(n);});
-            const sortedDates=Object.keys(groups).sort((a,b)=>b.localeCompare(a));
-            html+=sortedDates.map(date=>`
-                <div style="margin-bottom:8px;">
-                    <div style="font-size:12px;font-weight:600;color:#ffb74d;padding:4px 0;border-bottom:1px solid #3a3d48;">📅 ${date} (${groups[date].length})</div>
-                    ${groups[date].map(n=>`<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:4px 8px;">
-                        <div style="flex:1;font-size:11px;color:#ccc;">
-                            ${n.content?`<span>${n.content.replace(/</g,'&lt;')}</span>`:''}
-                            ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:200px;max-height:120px;border-radius:4px;display:block;margin-top:4px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:''}
-                        </div>
-                    </div>`).join('')}
-                </div>`).join('');
+        // AI Answer block
+        html+=`<div style="background:#14161e;border:1px solid #4fc3f7;border-radius:6px;padding:10px;margin-bottom:10px;">
+            <div style="font-size:11px;font-weight:600;color:#4fc3f7;margin-bottom:6px;">🤖 AI 分析回答</div>
+            <div style="font-size:12px;color:#e1e5ea;white-space:pre-wrap;line-height:1.6;">${answer.replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>
+        </div>`;
+        // Sources
+        if(sources.length){
+            html+=`<div style="font-size:10px;color:#8b9dc3;margin-bottom:4px;">參考來源 (${sources.length} 筆)：</div>`;
+            html+=sources.map(s=>`<div style="font-size:10px;color:#6b7a8d;padding:2px 8px;">• [${s.news_date||''}] ${s.content||''}</div>`).join('');
         }
         el.innerHTML=html;
-    }catch(e){el.innerHTML='<div style="color:#ef5350;">搜尋失敗</div>';}
+    }catch(e){el.innerHTML='<div style="color:#ef5350;">AI 搜尋失敗</div>';}
 }
 
 // --- Alert Notification Polling ---

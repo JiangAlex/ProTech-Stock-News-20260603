@@ -96,3 +96,73 @@ def search_notes(query: str, user_id: str = "default", use_ai: bool = True) -> l
         return {"keywords": keywords, "results": results}
     finally:
         conn.close()
+
+
+def ask_news(query: str, user_id: str = "default") -> dict:
+    """
+    AI Agent: search news notes + generate summary answer using MiniMax M2.7.
+    Returns {"answer": str, "keywords": list, "sources": list}
+    """
+    import re
+
+    # Step 1: Search notes
+    search_result = search_notes(query, user_id, use_ai=True)
+    keywords = search_result["keywords"]
+    results = search_result["results"]
+
+    if not results:
+        return {"answer": "❌ 找不到相關新聞備註。", "keywords": keywords, "sources": []}
+
+    # Step 2: Build context from search results (top 10)
+    top_results = results[:10]
+    context_text = "\n\n---\n".join([
+        f"[{r['news_date']}] {r['content'][:150]}" for r in top_results if r.get('content')
+    ])
+
+    if not context_text.strip():
+        return {"answer": "❌ 搜尋到圖片但無文字內容可供分析。", "keywords": keywords, "sources": top_results}
+
+    # Step 3: Call MiniMax M2.7 to generate answer
+    api_key = os.getenv("MINIMAX_API_KEY", "")
+    if not api_key:
+        return {"answer": "⚠️ AI 未設定（缺少 MINIMAX_API_KEY）", "keywords": keywords, "sources": top_results}
+
+    prompt = f"""你是一位台股新聞分析助理。請根據以下新聞備註資料，回答用戶的問題。
+若資料不足以回答，請據實說明。
+
+【新聞備註資料】
+{context_text}
+
+【用戶問題】
+{query}
+
+要求：繁體中文回答，條列重點，最後一句總結。"""
+
+    data = json.dumps({
+        "model": "MiniMax-M2.7",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 2000,
+        "temperature": 0.3,
+    }).encode()
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        req = urllib.request.Request(MINIMAX_API_URL, data=data, method="POST", headers=headers)
+        with urllib.request.urlopen(req, timeout=60) as r:
+            result = json.loads(r.read())
+            content = result["choices"][0]["message"]["content"].strip()
+            # Remove <think>...</think> blocks
+            import re as re2
+            answer = re2.sub(r'<think>.*?</think>', '', content, flags=re2.DOTALL).strip()
+            if not answer:
+                answer = "⚠️ AI 回應為空，請重試。"
+    except Exception as e:
+        logger.error(f"AI QA failed: {e}")
+        answer = f"⚠️ AI 回答失敗：{e}"
+
+    sources = [{"id": r["id"], "news_date": r.get("news_date"), "content": (r.get("content") or "")[:80]} for r in top_results]
+    return {"answer": answer, "keywords": keywords, "sources": sources}

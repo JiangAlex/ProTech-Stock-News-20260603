@@ -304,6 +304,12 @@ def api_search_notes(q: str = Query(""), user: str = Query("default"), ai: bool 
     return search_notes(q, user, use_ai=ai)
 
 
+@app.get("/api/notes/ask")
+def api_ask_notes(q: str = Query(""), user: str = Query("default")):
+    from src.services.semantic_search import ask_news
+    return ask_news(q, user)
+
+
 # --- Backtest ---
 
 @app.post("/api/backtest")
