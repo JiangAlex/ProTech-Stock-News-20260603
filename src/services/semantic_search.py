@@ -191,5 +191,5 @@ def ask_news(query: str, user_id: str = "default") -> dict:
         logger.error(f"AI QA failed: {e}")
         answer = f"⚠️ AI 回答失敗：{e}"
 
-    sources = [{"id": r["id"], "news_date": r.get("news_date"), "content": (r.get("content") or "")[:80]} for r in top_results]
+    sources = [{"id": r["id"], "news_date": r.get("news_date"), "content": (r.get("content") or "")[:80], "has_image": r.get("has_image", False)} for r in top_results]
     return {"answer": answer, "keywords": keywords, "sources": sources}
