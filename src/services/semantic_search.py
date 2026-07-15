@@ -9,6 +9,30 @@ logger = logging.getLogger(__name__)
 
 MINIMAX_API_URL = "https://api.minimax.io/v1/chat/completions"
 
+# Conversation history per user (in-memory)
+_conversation_history: dict[str, list] = {}
+MAX_HISTORY = 5
+
+
+def _build_messages(user_id: str, current_prompt: str) -> list[dict]:
+    """Build messages array with conversation history."""
+    history = _conversation_history.get(user_id, [])
+    messages = [{"role": "system", "content": "你是一位台股新聞分析助理，根據新聞備註資料回答問題。繁體中文回答。"}]
+    messages.extend(history)
+    messages.append({"role": "user", "content": current_prompt})
+    return messages
+
+
+def _save_history(user_id: str, question: str, answer: str):
+    """Save Q&A to conversation history, keep last N rounds."""
+    if user_id not in _conversation_history:
+        _conversation_history[user_id] = []
+    _conversation_history[user_id].append({"role": "user", "content": question})
+    _conversation_history[user_id].append({"role": "assistant", "content": answer})
+    # Keep only last MAX_HISTORY rounds
+    while len(_conversation_history[user_id]) > MAX_HISTORY * 2:
+        _conversation_history[user_id].pop(0)
+
 
 def expand_keywords(query: str) -> list[str]:
     """
@@ -140,7 +164,7 @@ def ask_news(query: str, user_id: str = "default") -> dict:
 
     data = json.dumps({
         "model": "MiniMax-M2.7",
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": _build_messages(user_id, prompt),
         "max_tokens": 2000,
         "temperature": 0.3,
     }).encode()
@@ -160,6 +184,9 @@ def ask_news(query: str, user_id: str = "default") -> dict:
             answer = re2.sub(r'<think>.*?</think>', '', content, flags=re2.DOTALL).strip()
             if not answer:
                 answer = "⚠️ AI 回應為空，請重試。"
+            else:
+                # Save to conversation history
+                _save_history(user_id, query, answer)
     except Exception as e:
         logger.error(f"AI QA failed: {e}")
         answer = f"⚠️ AI 回答失敗：{e}"
