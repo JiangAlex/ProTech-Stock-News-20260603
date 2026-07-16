@@ -103,6 +103,11 @@
         <strong>日資訊：</strong>
         <label><input type="checkbox" id="chkDayInfo" checked onchange="renderDayInfo()"> 顯示當日最高/最低/漲跌幅</label>
     </div>
+    <div class="settings-row" style="align-items:flex-start;">
+        <strong>🔔 警示：</strong>
+        <div id="alertOverview" style="flex:1;font-size:11px;color:#ccc;">載入中...</div>
+        <button class="btn btn-s" onclick="loadAlertOverview()" style="font-size:10px;">重新整理</button>
+    </div>
 </div>
 
 <div class="container">
@@ -244,7 +249,7 @@ function switchUser(name){
 }
 
 // --- Settings ---
-function toggleSettings(){ const p=document.getElementById('settingsPanel'); p.style.display=p.style.display==='none'?'block':'none'; }
+function toggleSettings(){ const p=document.getElementById('settingsPanel'); p.style.display=p.style.display==='none'?'block':'none'; if(p.style.display==='block') loadAlertOverview(); }
 
 function renderMASettings(){
     const c=document.getElementById('maSettings');
@@ -256,6 +261,45 @@ function renderMASettings(){
     </span>`).join('');
 }
 function addMA(){ if(maLines.length<5){maLines.push({period:10,on:true});renderMASettings();reloadChart();} }
+
+// --- Alert Overview in Settings ---
+async function loadAlertOverview(){
+    const container=document.getElementById('alertOverview');
+    if(!container) return;
+    try{
+        const alerts=await fetch(U('/api/alerts')).then(r=>r.json());
+        if(!alerts.length){container.innerHTML='<span style="color:#6b7a8d;">尚無任何警示設定</span>';return;}
+        const typeLabels={price_above:'股價≥',price_below:'股價≤',change_pct_up:'漲幅≥',change_pct_down:'跌幅≥',ma_cross_up:'MA金叉',ma_cross_down:'MA死叉',volume:'爆量≥'};
+        // Group by stock_code
+        const grouped={};
+        alerts.forEach(a=>{if(!grouped[a.stock_code])grouped[a.stock_code]=[];grouped[a.stock_code].push(a);});
+        let html='<div style="max-height:150px;overflow-y:auto;">';
+        for(const[code,items]of Object.entries(grouped)){
+            const name=items[0].stock_name||code;
+            html+=`<div style="margin-bottom:6px;padding:4px 6px;background:#14161e;border-radius:4px;">`;
+            html+=`<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+                <span style="color:#4fc3f7;cursor:pointer;font-weight:600;" onclick="openAlertPanel('${code}')">${code}</span>
+                <span style="color:#8b9dc3;font-size:10px;">(${items.length}條)</span>
+                <span onclick="openAlertPanel('${code}')" style="cursor:pointer;color:#ffeb3b;font-size:10px;">✎ 編輯</span>
+            </div>`;
+            html+=items.map(a=>{
+                const label=typeLabels[a.alert_type]||a.alert_type;
+                const param=formatAlertParams(a.alert_type,a.params);
+                const status=a.enabled?'<span style="color:#66bb6a;">●</span>':'<span style="color:#6b7a8d;">○</span>';
+                const mode=a.repeat_mode==='once'?'一次':'持續';
+                return `<div style="display:flex;align-items:center;gap:4px;padding:1px 0;font-size:10px;">
+                    ${status}
+                    <span style="color:#ccc;">${label} ${param}</span>
+                    <span style="color:#6b7a8d;">[${mode}]</span>
+                    <span onclick="deleteAlertItem(${a.id},'${code}');setTimeout(loadAlertOverview,300);" style="color:#ef5350;cursor:pointer;margin-left:auto;">✕</span>
+                </div>`;
+            }).join('');
+            html+=`</div>`;
+        }
+        html+='</div>';
+        container.innerHTML=html;
+    }catch(e){container.innerHTML='<span style="color:#ef5350;">載入失敗</span>';}
+}
 
 // --- Search ---
 function doSearch(){
