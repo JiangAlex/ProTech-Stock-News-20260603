@@ -130,12 +130,20 @@ def ask_news(query: str, user_id: str = "default") -> dict:
     import re
 
     # Step 1: Detect if query is a general/time-range question
-    general_patterns = r'(最近|近\d|全部|所有|都有|有哪些|總結|摘要|整理|報導什麼|說什麼|講什麼|有什麼|today|this week)'
+    general_patterns = r'(最近|近\d|全部|所有|都有|有哪些|總結|摘要|整理|報導什麼|說什麼|講什麼|有什麼|一[周週]|本[周週]|這[周週]|上[周週]|重點|概況|概述|回顧|today|this week)'
     is_general = bool(re.search(general_patterns, query))
 
     # Extract time range (days) from query
     days_match = re.search(r'近(\d+)[日天]', query)
-    recent_days = int(days_match.group(1)) if days_match else (7 if is_general else 0)
+    week_match = re.search(r'(一|本|這|上)[周週]', query)
+    if days_match:
+        recent_days = int(days_match.group(1))
+    elif week_match:
+        recent_days = 7
+    elif is_general:
+        recent_days = 7
+    else:
+        recent_days = 0
 
     if is_general:
         # General query: fetch recent notes directly without keyword filtering
