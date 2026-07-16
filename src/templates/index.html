@@ -236,7 +236,8 @@ let candleSeries = null;
 let watchGroups = {};
 let currentUser = (localStorage.getItem('protech_user') || 'default').toLowerCase();
 const MA_COLORS = ['#ffeb3b','#2196f3','#e91e63','#66bb6a','#ff9800'];
-let maLines = [{period:5,on:true},{period:20,on:true},{period:60,on:true}];
+let maLines = JSON.parse(localStorage.getItem('maLines')) || [{period:5,on:true},{period:20,on:true},{period:60,on:true}];
+function saveMASettings(){ localStorage.setItem('maLines',JSON.stringify(maLines)); }
 
 function U(url){return url+(url.includes('?')?'&':'?')+'user='+encodeURIComponent(currentUser);}
 function switchUser(name){
@@ -254,13 +255,13 @@ function toggleSettings(){ const p=document.getElementById('settingsPanel'); p.s
 function renderMASettings(){
     const c=document.getElementById('maSettings');
     c.innerHTML=maLines.map((m,i)=>`<span class="ma-item">
-        <input type="checkbox" ${m.on?'checked':''} onchange="maLines[${i}].on=this.checked;reloadChart()">
-        <input type="number" value="${m.period}" min="2" max="250" style="width:40px" onchange="maLines[${i}].period=+this.value;reloadChart()">
+        <input type="checkbox" ${m.on?'checked':''} onchange="maLines[${i}].on=this.checked;saveMASettings();reloadChart()">
+        <input type="number" value="${m.period}" min="2" max="250" style="width:40px" onchange="maLines[${i}].period=+this.value;saveMASettings();reloadChart()">
         <span style="color:${MA_COLORS[i]}">■</span>
-        <span onclick="maLines.splice(${i},1);renderMASettings();reloadChart()" style="cursor:pointer;color:#ef5350;">✕</span>
+        <span onclick="maLines.splice(${i},1);saveMASettings();renderMASettings();reloadChart()" style="cursor:pointer;color:#ef5350;">✕</span>
     </span>`).join('');
 }
-function addMA(){ if(maLines.length<5){maLines.push({period:10,on:true});renderMASettings();reloadChart();} }
+function addMA(){ if(maLines.length<5){maLines.push({period:10,on:true});saveMASettings();renderMASettings();reloadChart();} }
 
 // --- Alert Overview in Settings ---
 async function loadAlertOverview(){
@@ -419,6 +420,13 @@ function computeMA(data,period){
         return{time:d.time,value:Math.round(avg*100)/100};
     }).filter(Boolean);
 }
+function maDirection(maData){
+    // Add 'up' property: true if MA rising, false if falling
+    return maData.map((d,i)=>{
+        if(i===0) return {...d, up: true};
+        return {...d, up: d.value >= maData[i-1].value};
+    });
+}
 function computeMACD(data){
     const c=data.map(d=>d.close);
     const ema=(arr,p)=>{const k=2/(p+1);let r=[arr[0]];for(let i=1;i<arr.length;i++)r.push(arr[i]*k+r[i-1]*(1-k));return r;};
@@ -449,12 +457,20 @@ function renderChart(data){
     const maMarkers=[];
     maLines.forEach((m,i)=>{
         if(!m.on)return;
+        const maData=computeMA(cd,m.period);
         const s=chart.addLineSeries({color:MA_COLORS[i],lineWidth:1,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false});
-        s.setData(computeMA(cd,m.period));
+        s.setData(maData);
         // 扣抵標記：最新K棒往前第 period 根即為明日扣抵
         const idx=cd.length-m.period;
         if(idx>=0){
             maMarkers.push({time:cd[idx].time,position:'belowBar',color:MA_COLORS[i],shape:'arrowUp',text:`▽MA${m.period}: ${cd[idx].close}`});
+        }
+        // 方向標記：最新MA點 ↑ 或 ↓
+        if(maData.length>=2){
+            const last=maData[maData.length-1];
+            const prev=maData[maData.length-2];
+            const up=last.value>=prev.value;
+            maMarkers.push({time:last.time,position:'aboveBar',color:MA_COLORS[i],shape:up?'arrowUp':'arrowDown',text:`MA${m.period}${up?'↑':'↓'}`});
         }
     });
     if(maMarkers.length){
