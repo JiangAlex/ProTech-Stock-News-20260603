@@ -34,6 +34,7 @@ def startup():
     asyncio.get_event_loop().create_task(_daily_rank_job())
     asyncio.get_event_loop().create_task(_daily_alert_job())
     asyncio.get_event_loop().create_task(_daily_us_index_job())
+    asyncio.get_event_loop().create_task(_realtime_alert_job())
 
 
 async def _daily_rank_job():
@@ -124,6 +125,87 @@ async def _daily_us_index_job():
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"US index job error: {e}")
+
+
+async def _realtime_alert_job():
+    """Intraday realtime alert check: 09:00-13:30, every 60 seconds."""
+    import asyncio
+    from datetime import datetime, timedelta
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+
+    # Cache market map (refreshed daily)
+    market_map = {}
+    last_map_date = None
+
+    while True:
+        now = datetime.now()
+        # Only run on weekdays (Mon-Fri)
+        if now.weekday() >= 5:
+            # Wait until next Monday 09:00
+            days_until_monday = 7 - now.weekday()
+            next_open = now.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=days_until_monday)
+            await asyncio.sleep((next_open - now).total_seconds())
+            continue
+
+        market_open = now.replace(hour=9, minute=0, second=0, microsecond=0)
+        market_close = now.replace(hour=13, minute=30, second=0, microsecond=0)
+
+        if now < market_open:
+            # Wait until 09:00
+            await asyncio.sleep((market_open - now).total_seconds())
+            continue
+        elif now > market_close:
+            # Wait until next day 09:00
+            next_open = market_open + timedelta(days=1)
+            await asyncio.sleep((next_open - now).total_seconds())
+            continue
+
+        # Refresh market map once per day
+        today_str = now.strftime("%Y-%m-%d")
+        if last_map_date != today_str:
+            try:
+                from src.core.pg_client import get_stock_market_map
+                market_map = get_stock_market_map()
+                last_map_date = today_str
+                _logger.info(f"Realtime alert: refreshed market map ({len(market_map)} stocks)")
+            except Exception as e:
+                _logger.error(f"Realtime alert: failed to load market map: {e}")
+
+        # Get stock codes that have realtime-type alerts enabled
+        try:
+            from src.core.database import get_enabled_alerts
+            from src.services.alert_engine import REALTIME_ALERT_TYPES, run_realtime_alert_check
+            from src.services.realtime_quote import fetch_realtime_quotes_batch
+            from src.services.telegram_service import send_telegram_message
+
+            alerts = get_enabled_alerts()
+            realtime_codes = list({a["stock_code"] for a in alerts if a["alert_type"] in REALTIME_ALERT_TYPES})
+
+            if realtime_codes:
+                quotes = fetch_realtime_quotes_batch(realtime_codes, market_map)
+                if quotes:
+                    results = run_realtime_alert_check(quotes)
+                    if results:
+                        # Push to in-memory store for frontend polling
+                        user_msgs = {}
+                        for r in results:
+                            _triggered_alerts.append(r)
+                            uid = r["user_id"]
+                            if uid not in user_msgs:
+                                user_msgs[uid] = []
+                            user_msgs[uid].append(r["message"])
+                        # Send Telegram per user
+                        for uid, msgs in user_msgs.items():
+                            s = get_alert_settings(uid)
+                            if s.get("telegram_bot_token") and s.get("telegram_chat_id"):
+                                text = "🔔 <b>ProTech 盤中即時警示</b>\n\n" + "\n".join(msgs)
+                                send_telegram_message(s["telegram_bot_token"], s["telegram_chat_id"], text)
+        except Exception as e:
+            _logger.error(f"Realtime alert job error: {e}")
+
+        # Sleep 60 seconds
+        await asyncio.sleep(60)
 
 
 # --- US Index API ---

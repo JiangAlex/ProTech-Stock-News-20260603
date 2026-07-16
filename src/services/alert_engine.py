@@ -91,12 +91,15 @@ def check_alert(alert, kline_data):
 
 
 def run_alert_check():
-    """Run all enabled alerts, return list of triggered messages."""
+    """Run all enabled alerts (daily K-line based), return list of triggered messages."""
     alerts = get_enabled_alerts()
     triggered_messages = []
     kline_cache = {}
 
     for alert in alerts:
+        # Skip realtime-type alerts (handled by run_realtime_alert_check)
+        if alert["alert_type"] in REALTIME_ALERT_TYPES:
+            continue
         code = alert["stock_code"]
         # Cache kline data per stock
         if code not in kline_cache:
@@ -109,5 +112,86 @@ def run_alert_check():
             if alert["repeat_mode"] == "once":
                 disable_alert(alert["id"])
             logger.info(f"Alert triggered: {msg}")
+
+    return triggered_messages
+
+
+# --- Realtime alert check (intraday) ---
+
+# Alert types that should be checked with realtime quotes
+REALTIME_ALERT_TYPES = {"price_above", "price_below", "change_pct_up", "change_pct_down"}
+
+
+def check_realtime_alert(alert, quote):
+    """
+    Check if a realtime alert condition is triggered.
+    Args:
+        alert: alert dict from DB
+        quote: realtime quote dict {price, yesterday_close, ...}
+    Returns (triggered: bool, message: str)
+    """
+    price = quote.get("price")
+    if price is None:
+        return False, ""
+
+    params = alert["params"] or {}
+    alert_type = alert["alert_type"]
+    code = alert["stock_code"]
+    yesterday_close = quote.get("yesterday_close")
+
+    if alert_type == "price_above":
+        threshold = params.get("threshold", 0)
+        if price >= threshold:
+            return True, f"📈 {code} 即時價 {price} ≥ {threshold}"
+
+    elif alert_type == "price_below":
+        threshold = params.get("threshold", 0)
+        if price <= threshold:
+            return True, f"📉 {code} 即時價 {price} ≤ {threshold}"
+
+    elif alert_type == "change_pct_up":
+        threshold = params.get("threshold", 0)
+        if yesterday_close and yesterday_close > 0:
+            pct = (price - yesterday_close) / yesterday_close * 100
+            if pct >= threshold:
+                return True, f"🔺 {code} 即時漲幅 {pct:.1f}% ≥ {threshold}%"
+
+    elif alert_type == "change_pct_down":
+        threshold = params.get("threshold", 0)
+        if yesterday_close and yesterday_close > 0:
+            pct = (yesterday_close - price) / yesterday_close * 100
+            if pct >= threshold:
+                return True, f"🔻 {code} 即時跌幅 {pct:.1f}% ≥ {threshold}%"
+
+    return False, ""
+
+
+def run_realtime_alert_check(quotes):
+    """
+    Run realtime alert check with fetched quotes.
+    Args:
+        quotes: dict {stock_code: {price, yesterday_close, ...}} from MIS API
+    Returns:
+        list of triggered messages
+    """
+    alerts = get_enabled_alerts()
+    triggered_messages = []
+
+    for alert in alerts:
+        if alert["alert_type"] not in REALTIME_ALERT_TYPES:
+            continue
+
+        code = alert["stock_code"]
+        quote = quotes.get(code)
+        if not quote:
+            continue
+
+        triggered, msg = check_realtime_alert(alert, quote)
+        if triggered:
+            triggered_messages.append({"alert_id": alert["id"], "user_id": alert["user_id"], "message": msg})
+            mark_alert_triggered(alert["id"])
+            if alert["repeat_mode"] == "once":
+                disable_alert(alert["id"])
+            logger.info(f"Realtime alert triggered: {msg}")
 
     return triggered_messages

@@ -21,8 +21,19 @@ def get_all_stocks():
     conn = _conn()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT stock_code, stock_name FROM stock_basic ORDER BY stock_code")
-        return [{"code": r[0], "name": r[1]} for r in cur.fetchall()]
+        cur.execute("SELECT stock_code, stock_name, market FROM stock_basic ORDER BY stock_code")
+        return [{"code": r[0], "name": r[1], "market": r[2]} for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def get_stock_market_map():
+    """Return {stock_code: market} mapping. market is 'TSE' or 'TPEx'."""
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT stock_code, market FROM stock_basic WHERE market IS NOT NULL")
+        return {r[0]: r[1] for r in cur.fetchall()}
     finally:
         conn.close()
 
