@@ -129,18 +129,31 @@ def ask_news(query: str, user_id: str = "default") -> dict:
     """
     import re
 
-    # Step 1: Search notes
-    search_result = search_notes(query, user_id, use_ai=True)
-    keywords = search_result["keywords"]
-    results = search_result["results"]
+    # Step 1: Detect if query is a general/time-range question
+    general_patterns = r'(最近|近\d|全部|所有|都有|有哪些|總結|摘要|整理|報導什麼|說什麼|講什麼|有什麼|today|this week)'
+    is_general = bool(re.search(general_patterns, query))
+
+    # Extract time range (days) from query
+    days_match = re.search(r'近(\d+)[日天]', query)
+    recent_days = int(days_match.group(1)) if days_match else (7 if is_general else 0)
+
+    if is_general:
+        # General query: fetch recent notes directly without keyword filtering
+        results = _fetch_recent_notes(user_id, days=recent_days)
+        keywords = [query]
+    else:
+        # Specific query: use keyword expansion + ILIKE
+        search_result = search_notes(query, user_id, use_ai=True)
+        keywords = search_result["keywords"]
+        results = search_result["results"]
 
     if not results:
         return {"answer": "❌ 找不到相關新聞備註。", "keywords": keywords, "sources": []}
 
-    # Step 2: Build context from search results (top 10)
-    top_results = results[:10]
+    # Step 2: Build context from search results (top 15)
+    top_results = results[:15]
     context_text = "\n\n---\n".join([
-        f"[{r['news_date']}] {r['content'][:150]}" for r in top_results if r.get('content')
+        f"[{r['news_date']}] {r['content'][:200]}" for r in top_results if r.get('content')
     ])
 
     if not context_text.strip():
@@ -193,3 +206,27 @@ def ask_news(query: str, user_id: str = "default") -> dict:
 
     sources = [{"id": r["id"], "news_date": r.get("news_date"), "content": (r.get("content") or "")[:80], "has_image": r.get("has_image", False)} for r in top_results]
     return {"answer": answer, "keywords": keywords, "sources": sources}
+
+
+def _fetch_recent_notes(user_id: str, days: int = 7) -> list[dict]:
+    """Fetch recent news notes without keyword filtering (for general questions)."""
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    from src.core.pg_client import DB_CONFIG
+
+    conn = psycopg2.connect(**DB_CONFIG)
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        sql = """
+            SELECT id, stock_code, content, news_date, created_at,
+                   (image_data IS NOT NULL) AS has_image
+            FROM watchlist_notes
+            WHERE stock_code = 'NEWS' AND user_id = %s
+              AND (news_date >= CURRENT_DATE - %s OR created_at >= CURRENT_DATE - %s)
+            ORDER BY news_date DESC NULLS LAST, created_at DESC
+            LIMIT 20
+        """
+        cur.execute(sql, [user_id, days, days])
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
