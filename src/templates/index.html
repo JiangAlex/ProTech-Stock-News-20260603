@@ -911,13 +911,13 @@ async function renderFloatNotes(code){
     const notes=await fetch(U(`/api/watchlist/${code}/notes`)).then(r=>r.json());
     body.innerHTML=`<div style="padding:4px;">
         <div style="display:flex;gap:4px;margin-bottom:6px;">
-            <input type="text" id="noteInput-${code}" placeholder="輸入備註..." style="flex:1;padding:3px 6px;font-size:11px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;">
+            <textarea id="noteInput-${code}" placeholder="輸入備註..." rows="2" style="flex:1;padding:3px 6px;font-size:11px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;resize:vertical;line-height:1.4;"></textarea>
             <label class="btn btn-s" style="font-size:10px;padding:2px 6px;cursor:pointer;">📎<input type="file" accept="image/*" style="display:none;" onchange="uploadNote('${code}',this.files[0])"></label>
             <button class="btn btn-s" onclick="submitNote('${code}')" style="font-size:10px;padding:2px 6px;">送出</button>
         </div>
         ${notes.map(n=>`<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:3px 0;border-top:1px solid #2a2d38;">
             <div style="flex:1;font-size:11px;color:#ccc;">
-                ${n.content?`<span>${n.content.replace(/</g,'&lt;')}</span>`:''}
+                ${n.content?`<span style="white-space:pre-wrap;">${n.content.replace(/</g,'&lt;')}</span>`:''}
                 ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:120px;max-height:80px;border-radius:4px;display:block;margin-top:2px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:n.image_path?`<img src="${n.image_path}" style="max-width:120px;max-height:80px;border-radius:4px;display:block;margin-top:2px;cursor:pointer;" onclick="window.open('${n.image_path}','_blank')">`:''}
                 <div style="font-size:9px;color:#6b7a8d;margin-top:1px;">${n.created_at}</div>
             </div>
@@ -1256,10 +1256,10 @@ async function loadNewsNotes(){
             <div style="display:none;">
                 ${groups[date].map(n=>`<div data-note="${(n.content||'').replace(/"/g,'')}" style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:4px 8px;">
                     <div style="flex:1;font-size:11px;color:#ccc;">
-                        ${n.content?`<span>${n.content.replace(/</g,'&lt;')}</span>`:''}
+                        ${n.content?`<span style="white-space:pre-wrap;">${n.content.replace(/</g,'&lt;')}</span>`:''}
                         ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:200px;max-height:120px;border-radius:4px;display:block;margin-top:4px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:''}
                     </div>
-                    <span onclick="editNewsNote(${n.id},'${(n.content||'').replace(/'/g,"\\'").replace(/\n/g,' ')}')" style="color:#4fc3f7;cursor:pointer;font-size:11px;" title="編輯">✎</span>
+                    <span onclick="editNewsNote(${n.id})" style="color:#4fc3f7;cursor:pointer;font-size:11px;" title="編輯">✎</span>
                     <span onclick="delNewsNote(${n.id})" style="color:#ef5350;cursor:pointer;font-size:11px;">✕</span>
                 </div>`).join('')}
             </div>
@@ -1269,10 +1269,10 @@ async function loadNewsNotes(){
             <div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none';this.querySelector('.nn-arrow').textContent=this.nextElementSibling.style.display==='none'?'▸':'▾'" style="font-size:12px;font-weight:600;color:#ffb74d;padding:6px 4px;border-bottom:1px solid #3a3d48;cursor:pointer;user-select:none;"><span class="nn-arrow">▸</span> 📅 ${date} (${groups[date].length})</div>
             <div style="display:none;">${groups[date].map(n=>`<div data-note="${(n.content||'').replace(/"/g,'')}" style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:4px 8px;">
                     <div style="flex:1;font-size:11px;color:#ccc;">
-                        ${n.content?`<span>${n.content.replace(/</g,'&lt;')}</span>`:''}
+                        ${n.content?`<span style="white-space:pre-wrap;">${n.content.replace(/</g,'&lt;')}</span>`:''}
                         ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:200px;max-height:120px;border-radius:4px;display:block;margin-top:4px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:''}
                     </div>
-                    <span onclick="editNewsNote(${n.id},'${(n.content||'').replace(/'/g,"\\'").replace(/\n/g,' ')}')" style="color:#4fc3f7;cursor:pointer;font-size:11px;" title="編輯">✎</span>
+                    <span onclick="editNewsNote(${n.id})" style="color:#4fc3f7;cursor:pointer;font-size:11px;" title="編輯">✎</span>
                     <span onclick="delNewsNote(${n.id})" style="color:#ef5350;cursor:pointer;font-size:11px;">✕</span>
                 </div>`).join('')}</div>
         </div>`).join('')}</div><button class="btn btn-s" onclick="document.getElementById('newsNotesMore').style.display='block';this.style.display='none';" style="font-size:10px;padding:4px 8px;margin-top:4px;">顯示更多 (${moreDates.length} 天)</button>`:'');
@@ -1302,7 +1302,11 @@ async function delNewsNote(id){
     await fetch('/api/watchlist/notes/'+id+'?user=shared',{method:'DELETE'});
     loadNewsNotes();
 }
-async function editNewsNote(id, oldContent){
+async function editNewsNote(id){
+    // Fetch original content from API to preserve newlines
+    const notes=await fetch('/api/watchlist/NEWS/notes?user=shared').then(r=>r.json());
+    const note=notes.find(n=>n.id===id);
+    const oldContent=note?note.content||'':'';
     // Create modal for multi-line edit
     const overlay=document.createElement('div');
     overlay.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;';
@@ -1315,7 +1319,7 @@ async function editNewsNote(id, oldContent){
         </div>
     </div>`;
     document.body.appendChild(overlay);
-    document.getElementById('editNoteTA').value=oldContent.replace(/\\n/g,'\n');
+    document.getElementById('editNoteTA').value=oldContent;
 }
 async function saveEditNote(id){
     const ta=document.getElementById('editNoteTA');
