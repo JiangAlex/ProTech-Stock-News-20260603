@@ -355,6 +355,27 @@ async function reloadChart(){
     renderDayInfo();
 }
 
+function getMADirectionInfo(data){
+    if(!data||data.length<2) return '';
+    const cd=data.map(d=>({close:d.close}));
+    return maLines.filter(m=>m.on).map((m,i)=>{
+        if(cd.length<m.period) return '';
+        const calcMA=(arr,p,endIdx)=>{
+            if(endIdx<p-1) return null;
+            let sum=0;for(let j=endIdx-p+1;j<=endIdx;j++) sum+=arr[j].close;
+            return Math.round((sum/p)*100)/100;
+        };
+        const last=calcMA(cd,m.period,cd.length-1);
+        const prev=calcMA(cd,m.period,cd.length-2);
+        if(last===null||prev===null) return '';
+        const up=last>=prev;
+        const arrow=up?'↑':'↓';
+        const arrowColor=up?'#ef5350':'#26a69a';
+        const idx=maLines.indexOf(m);
+        return `<span style="color:${MA_COLORS[idx]}">MA${m.period}: ${last} <b style="color:${arrowColor}">${arrow}</b></span>`;
+    }).join('');
+}
+
 function renderDayInfo(){
     const bar=document.getElementById('dayInfoBar');
     const show=document.getElementById('chkDayInfo')?.checked;
@@ -364,12 +385,15 @@ function renderDayInfo(){
     const change=prev?(d.close-prev.close):0;
     const changePct=prev&&prev.close>0?((change/prev.close)*100):0;
     const color=change>=0?'#ef5350':'#26a69a';
+    // MA direction info
+    const maInfo=getMADirectionInfo(lastData);
     bar.innerHTML=`
         <span>收盤: <b style="color:${color}">${d.close}</b></span>
         <span>最高: <b style="color:#ef5350">${d.high}</b></span>
         <span>最低: <b style="color:#26a69a">${d.low}</b></span>
         <span>漲跌: <b style="color:${color}">${change>=0?'+':''}${change.toFixed(2)} (${changePct>=0?'+':''}${changePct.toFixed(2)}%)</b></span>
         <span>成交量: <b>${d.volume?d.volume.toLocaleString():'-'}</b></span>
+        ${maInfo}
     `;
 }
 function updateDayInfoFromCrosshair(param){
@@ -464,13 +488,6 @@ function renderChart(data){
         const idx=cd.length-m.period;
         if(idx>=0){
             maMarkers.push({time:cd[idx].time,position:'belowBar',color:MA_COLORS[i],shape:'arrowUp',text:`▽MA${m.period}: ${cd[idx].close}`});
-        }
-        // 方向標記：最新MA點 ↑ 或 ↓
-        if(maData.length>=2){
-            const last=maData[maData.length-1];
-            const prev=maData[maData.length-2];
-            const up=last.value>=prev.value;
-            maMarkers.push({time:last.time,position:'aboveBar',color:MA_COLORS[i],shape:up?'arrowUp':'arrowDown',text:`MA${m.period}${up?'↑':'↓'}`});
         }
     });
     if(maMarkers.length){
