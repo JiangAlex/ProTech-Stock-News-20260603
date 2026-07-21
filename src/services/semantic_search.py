@@ -44,13 +44,18 @@ def expand_keywords(query: str) -> list[str]:
     if not api_key:
         return [query]
 
-    prompt = f"""你是一個搜尋關鍵字擴展助手。用戶要搜尋股市新聞備註。
-請根據輸入的搜尋詞，產生 5-8 個相關的同義詞、相關詞、相關公司名、相關概念。
-只回傳關鍵詞列表，用逗號分隔，不要其他解釋。
+    prompt = f"""你是一個台股新聞搜尋關鍵字擴展助手。用戶的搜尋詞會用 ILIKE 去比對資料庫中的新聞備註內容。
+
+規則：
+1. 先將搜尋詞拆分成每個獨立的詞（例如「copos 概念股」→「CoPoS」「概念股」）
+2. 保留每個詞的各種大小寫寫法（例如 copos → CoPoS, COPOS, Copos）
+3. 再產生 3-5 個台股相關的同義詞或相關詞（繁體中文優先）
+4. 每個關鍵詞必須是「單一詞彙」，不可包含空格
+5. 只回傳關鍵詞列表，用逗號分隔，不要其他解釋
 
 搜尋詞：{query}
 
-相關關鍵詞："""
+關鍵詞："""
 
     data = json.dumps({
         "model": "MiniMax-M2.7",
@@ -99,6 +104,27 @@ def search_notes(query: str, user_id: str = "default", use_ai: bool = True) -> l
         keywords = expand_keywords(query)
     else:
         keywords = [query]
+
+    # Step 1.5: Programmatic token split as fallback — ensure individual words are searched
+    import re as _re
+    tokens = [t.strip() for t in _re.split(r'[\s,，、/]+', query) if t.strip() and len(t.strip()) >= 2]
+    for token in tokens:
+        # Add token and common case variants
+        variants = {token, token.upper(), token.lower(), token.capitalize()}
+        for v in variants:
+            if v not in keywords:
+                keywords.append(v)
+
+    # Deduplicate while preserving order
+    seen = set()
+    deduped = []
+    for kw in keywords:
+        kw_lower = kw.lower()
+        if kw_lower not in seen:
+            seen.add(kw_lower)
+            deduped.append(kw)
+    keywords = deduped
+    logger.info(f"Final search keywords for '{query}': {keywords}")
 
     # Step 2: Query DB with ILIKE for each keyword
     conn = psycopg2.connect(**DB_CONFIG)
@@ -172,16 +198,35 @@ def ask_news(query: str, user_id: str = "default") -> dict:
     if not api_key:
         return {"answer": "⚠️ AI 未設定（缺少 MINIMAX_API_KEY）", "keywords": keywords, "sources": top_results}
 
-    prompt = f"""你是一位台股新聞分析助理。請根據以下新聞備註資料，回答用戶的問題。
-若資料不足以回答，請據實說明。
+    prompt = f"""# 角色
+你是一位擁有 20 年經驗的「資深機構買方股票分析師」，同時也是台股新聞分析助理。
+請根據下方提供的【新聞備註資料】，針對用戶問題產出專業、客觀、數據驅動的分析回答。
 
+# 重要約束
+- 只能根據【新聞備註資料】中的事實進行分析，不可編造資料中沒有的數據
+- 若資料不足以支撐某個分析面向，直接跳過該段落，不要硬寫「資料不足」
+- 繁體中文回答，使用條列式呈現，保持簡潔易讀
+- 保持專業理性客觀的語氣
+
+# 彈性分析框架（根據資料豐富程度選擇展開）
+- 若資料包含個股/產業資訊 → 簡述商業模式或產業定位
+- 若資料包含財務數據（營收、EPS、毛利率等）→ 列出關鍵數據並評估
+- 若資料包含未來趨勢或催化劑 → 說明成長論點
+- 若資料包含風險因子 → 列出關鍵風險
+- 最後給出綜合觀點或操作方向參考
+
+# 格式要求
+- 先用 1-2 句總結核心結論
+- 再條列重點分析
+- 結尾加上：「⚠️ 以上僅供研究參考，不構成投資建議。」
+
+---
 【新聞備註資料】
 {context_text}
 
+---
 【用戶問題】
-{query}
-
-要求：繁體中文回答，條列重點，最後一句總結。"""
+{query}"""
 
     data = json.dumps({
         "model": "MiniMax-M2.7",
