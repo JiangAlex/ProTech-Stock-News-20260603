@@ -15,12 +15,12 @@ MINIMAX_API_URL = "https://api.minimax.io/v1/chat/completions"
 _ANALYSIS_PROMPT = """你是台股新聞圖片分析助理。請分析這張新聞圖片，擷取重點摘要。
 
 規則：
-1. 如果圖片包含文字/標題/新聞內容，優先逐字擷取重要文字
-2. 如果是K線圖/技術分析圖，描述股票代號、趨勢方向、關鍵價位
-3. 如果是表格/數據，擷取關鍵數字
+1. 如果圖片包含文字/標題/新聞內容，盡可能逐字擷取所有重要文字
+2. 如果是K線圖/技術分析圖，描述股票代號、趨勢方向、關鍵價位、指標訊號
+3. 如果是表格/數據，完整擷取關鍵數字與欄位
 4. 繁體中文回答
 5. 只回傳摘要內容，不要前綴說明
-6. 限制在 200 字以內"""
+6. 限制在 500 字以內"""
 
 
 def analyze_image_ai(image_data: bytes, filename: str = "") -> str | None:
@@ -67,7 +67,7 @@ def analyze_image_ai(image_data: bytes, filename: str = "") -> str | None:
                 ],
             }
         ],
-        "max_tokens": 500,
+        "max_tokens": 1000,
         "temperature": 0.2,
         "thinking": {"type": "disabled"},
     }).encode()
@@ -86,7 +86,7 @@ def analyze_image_ai(image_data: bytes, filename: str = "") -> str | None:
             import re
             content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
             if content:
-                return content[:200]
+                return content[:500]
             return None
     except Exception as e:
         logger.error(f"AI image analysis failed: {e}")
