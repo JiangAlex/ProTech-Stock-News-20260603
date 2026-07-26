@@ -17,6 +17,7 @@ from src.core.database import (
     get_all_groups, get_notes, add_note, delete_note, get_note_image, update_cost, sell_stock,
     get_balance, update_balance, get_trades, get_all_trades, add_trade, delete_trade,
     get_alerts, add_alert, update_alert, delete_alert, get_alert_settings, update_alert_settings,
+    update_note_content,
 )
 from src.core.pg_client import (
     get_all_stocks, get_daily_kline, get_weekly_kline, get_monthly_kline,
@@ -543,20 +544,49 @@ async def api_add_note(code: str, user: str = Query("default"),
             return {"ok": False, "error": "duplicate", "filename": image_filename}
         conn.close()
         image_data = await image.read()
-        # OCR: auto extract text from image if content is empty
-        if not content and image_data:
-            try:
-                async with _ocr_semaphore:
-                    loop = asyncio.get_event_loop()
-                    ocr_text = await loop.run_in_executor(
-                        None, functools.partial(_run_ocr, image_data)
-                    )
-                if ocr_text:
-                    content = ocr_text
-            except Exception:
-                pass
-    add_note(code, content, "", user, image_data, news_date if news_date else None, image_filename)
-    return {"ok": True}
+
+    # Save note immediately (with placeholder if image needs processing)
+    pending = bool(image_data and not content)
+    save_content = "⏳ 分析中..." if pending else content
+    note_id = add_note(code, save_content, "", user, image_data, news_date if news_date else None, image_filename)
+
+    # Dispatch background image analysis if needed
+    if pending:
+        asyncio.get_event_loop().create_task(
+            _process_image_background(note_id, image_data, image_filename, user)
+        )
+
+    return {"ok": True, "id": note_id, "pending": pending}
+
+
+async def _process_image_background(note_id: int, image_data: bytes, filename: str, user_id: str):
+    """Background task: try AI analysis first, fallback to OCR."""
+    from src.services.image_analysis import analyze_image_ai, analyze_image_ocr
+
+    loop = asyncio.get_event_loop()
+    content = ""
+
+    try:
+        # Try AI vision analysis first
+        content = await loop.run_in_executor(
+            None, functools.partial(analyze_image_ai, image_data, filename)
+        ) or ""
+    except Exception:
+        content = ""
+
+    # Fallback to OCR if AI returned nothing
+    if not content:
+        try:
+            async with _ocr_semaphore:
+                content = await loop.run_in_executor(
+                    None, functools.partial(_run_ocr, image_data)
+                )
+        except Exception:
+            content = ""
+
+    # Update the note with the result
+    final_content = content if content else "(圖片)"
+    update_note_content(note_id, final_content, user_id)
 
 
 if __name__ == "__main__":
