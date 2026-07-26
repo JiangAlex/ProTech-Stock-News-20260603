@@ -5,6 +5,7 @@ load_dotenv()
 
 import asyncio
 import functools
+import os
 
 from fastapi import FastAPI, Query, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, Response
@@ -32,6 +33,9 @@ app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 # Limit concurrent OCR processes to 1 to prevent CPU/memory spikes
 _ocr_semaphore = asyncio.Semaphore(1)
+
+# Limit concurrent AI image analysis to 2
+_ai_semaphore = asyncio.Semaphore(2)
 
 # Max image dimension for OCR (downscale large images to save memory)
 _OCR_MAX_PIXELS = 1600
@@ -570,16 +574,17 @@ async def _process_image_background(note_id: int, image_data: bytes, filename: s
     content = ""
 
     try:
-        # Try AI vision analysis first
-        content = await loop.run_in_executor(
-            None, functools.partial(analyze_image_ai, image_data, filename)
-        ) or ""
+        # Try AI vision analysis first (limited concurrency)
+        async with _ai_semaphore:
+            content = await loop.run_in_executor(
+                None, functools.partial(analyze_image_ai, image_data, filename)
+            ) or ""
     except Exception as e:
         logger.error(f"Background AI analysis failed for note {note_id}: {e}")
         content = ""
 
-    # Fallback to OCR if AI returned nothing
-    if not content:
+    # Fallback to OCR if AI returned nothing (controlled by ENABLE_OCR env var)
+    if not content and os.getenv("ENABLE_OCR", "false").lower() == "true":
         try:
             async with _ocr_semaphore:
                 content = await loop.run_in_executor(
