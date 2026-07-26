@@ -20,7 +20,7 @@ _ANALYSIS_PROMPT = """你是台股新聞圖片分析助理。請分析這張新�
 3. 如果是表格/數據，完整擷取關鍵數字與欄位
 4. 繁體中文回答
 5. 只回傳摘要內容，不要前綴說明
-6. 限制在 500 字以內"""
+6. 限制在 1000 字以內"""
 
 
 def analyze_image_ai(image_data: bytes, filename: str = "") -> str | None:
@@ -67,7 +67,7 @@ def analyze_image_ai(image_data: bytes, filename: str = "") -> str | None:
                 ],
             }
         ],
-        "max_tokens": 1000,
+        "max_tokens": 2000,
         "temperature": 0.2,
         "thinking": {"type": "disabled"},
     }).encode()
@@ -86,7 +86,7 @@ def analyze_image_ai(image_data: bytes, filename: str = "") -> str | None:
             import re
             content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
             if content:
-                return content[:500]
+                return content[:1000]
             return None
     except Exception as e:
         logger.error(f"AI image analysis failed: {e}")
