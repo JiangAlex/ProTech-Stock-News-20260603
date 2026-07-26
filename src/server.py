@@ -3,6 +3,9 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import asyncio
+import functools
+
 from fastapi import FastAPI, Query, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -25,6 +28,28 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 UPLOADS_DIR = Path(__file__).parent.parent / "data" / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+
+# Limit concurrent OCR processes to 1 to prevent CPU/memory spikes
+_ocr_semaphore = asyncio.Semaphore(1)
+
+# Max image dimension for OCR (downscale large images to save memory)
+_OCR_MAX_PIXELS = 1600
+
+
+def _run_ocr(image_data: bytes) -> str:
+    """Synchronous OCR with image downscaling. Runs in thread pool."""
+    import pytesseract
+    from PIL import Image
+    import io
+
+    img = Image.open(io.BytesIO(image_data))
+    # Downscale if image is too large
+    w, h = img.size
+    if max(w, h) > _OCR_MAX_PIXELS:
+        ratio = _OCR_MAX_PIXELS / max(w, h)
+        img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
+    ocr_text = pytesseract.image_to_string(img, lang='chi_tra+eng').strip()
+    return ocr_text[:200] if ocr_text else ""
 
 
 @app.on_event("startup")
@@ -521,13 +546,13 @@ async def api_add_note(code: str, user: str = Query("default"),
         # OCR: auto extract text from image if content is empty
         if not content and image_data:
             try:
-                import pytesseract
-                from PIL import Image
-                import io
-                img = Image.open(io.BytesIO(image_data))
-                ocr_text = pytesseract.image_to_string(img, lang='chi_tra+eng').strip()
+                async with _ocr_semaphore:
+                    loop = asyncio.get_event_loop()
+                    ocr_text = await loop.run_in_executor(
+                        None, functools.partial(_run_ocr, image_data)
+                    )
                 if ocr_text:
-                    content = ocr_text[:200]
+                    content = ocr_text
             except Exception:
                 pass
     add_note(code, content, "", user, image_data, news_date if news_date else None, image_filename)
