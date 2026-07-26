@@ -1289,13 +1289,24 @@ async function uploadNewsNote(files){
     if(!files||!files.length)return;
     const dateInp=document.getElementById('newsNoteDate');
     let skipped=[];
+    const total=files.length;
+    // Show progress toast
+    const prog=document.createElement('div');
+    prog.style.cssText='position:fixed;bottom:20px;right:20px;background:#1a1d28;border:1px solid #4fc3f7;color:#e1e5ea;padding:10px 16px;border-radius:6px;font-size:12px;z-index:99999;box-shadow:0 4px 16px rgba(0,0,0,0.5);';
+    prog.textContent=`上傳中 0/${total} ...`;
+    document.body.appendChild(prog);
+    let done=0;
     for(const file of files){
         const fd=new FormData();fd.append('content','');fd.append('image',file);fd.append('news_date',dateInp.value);
         const r=await fetch('/api/watchlist/NEWS/notes?user=shared',{method:'POST',body:fd});
         const res=await r.json();
         if(res.error==='duplicate') skipped.push(file.name);
+        done++;
+        prog.textContent=`上傳中 ${done}/${total} ...`;
     }
+    prog.remove();
     if(skipped.length) alert('以下檔案已存在，跳過上傳：\n'+skipped.join('\n'));
+    showToast(`✓ 上傳完成 ${total-skipped.length}/${total} 張`);
     loadNewsNotes();
 }
 async function delNewsNote(id){
