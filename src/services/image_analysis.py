@@ -12,15 +12,16 @@ logger = logging.getLogger(__name__)
 MINIMAX_API_URL = "https://api.minimax.io/v1/chat/completions"
 
 # Prompt for news image analysis
-_ANALYSIS_PROMPT = """你是台股新聞圖片分析助理。請分析這張新聞圖片，擷取重點摘要。
-
-規則：
-1. 如果圖片包含文字/標題/新聞內容，盡可能逐字擷取所有重要文字
-2. 如果是K線圖/技術分析圖，描述股票代號、趨勢方向、關鍵價位、指標訊號
-3. 如果是表格/數據，完整擷取關鍵數字與欄位
-4. 繁體中文回答
-5. 只回傳摘要內容，不要前綴說明
-6. 限制在 1000 字以內"""
+_ANALYSIS_PROMPT = """\
+[角色任務]：你是一名專業台股新聞圖片分析助理，負責將新聞圖片資料轉化為結構化的股市研判摘要。
+[背景資訊]：使用者上傳包含台股財經新聞、產業報導或個股數據表格的圖片，需要迅速掌握市場重點、個股動向、籌碼狀態與技術面位階。
+[具體指令]：
+1. 完整辨識並逐字擷取圖片中的新聞標題、內文與關鍵數據。
+2. 整理核心新聞主題與關鍵影響因子，並標註新聞內個股屬性（「🔴 利多」、「🟢 利空」或「⚪ 中性」）。
+3. 根據新聞內文提及之數據，分析法人籌碼動向（如外資、投信買賣超金額/張數）與技術面位階（如股價相對於均線位置、創高或跌深等）。
+4. 根據新聞主題進行產業延伸推演，主動列出未在新聞中提及但可能受連動影響的「上中下游供應鏈與相關概念股」（含名稱與四位數代號）。
+5. 只回傳摘要內容，不要前綴說明。
+[約束條件]：請全程使用繁體中文回覆，專業術語保持英文（如 QoQ、YoY、EPS、ASIC、CoWoS），格式採用清晰的標題與條列點呈現。"""
 
 
 def analyze_image_ai(image_data: bytes, filename: str = "") -> str | None:
@@ -67,7 +68,7 @@ def analyze_image_ai(image_data: bytes, filename: str = "") -> str | None:
                 ],
             }
         ],
-        "max_tokens": 2000,
+        "max_tokens": 4000,
         "temperature": 0.2,
         "thinking": {"type": "disabled"},
     }).encode()
@@ -86,7 +87,7 @@ def analyze_image_ai(image_data: bytes, filename: str = "") -> str | None:
             import re
             content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
             if content:
-                return content[:1000]
+                return content[:4000]
             return None
     except Exception as e:
         logger.error(f"AI image analysis failed: {e}")
