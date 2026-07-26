@@ -536,16 +536,14 @@ async def api_add_note(code: str, user: str = Query("default"),
     image_filename = ""
     if image and image.filename:
         image_filename = image.filename
-        # Check duplicate filename
+        # Remove existing note with same filename (allow re-upload after delete)
         import psycopg2
         from src.core.pg_client import DB_CONFIG
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
-        cur.execute("SELECT id FROM watchlist_notes WHERE stock_code=%s AND user_id=%s AND image_filename=%s",
+        cur.execute("DELETE FROM watchlist_notes WHERE stock_code=%s AND user_id=%s AND image_filename=%s",
                     (code, user, image_filename))
-        if cur.fetchone():
-            conn.close()
-            return {"ok": False, "error": "duplicate", "filename": image_filename}
+        conn.commit()
         conn.close()
         image_data = await image.read()
 
