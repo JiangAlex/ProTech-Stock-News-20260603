@@ -552,7 +552,8 @@ async def api_add_note(code: str, user: str = Query("default"),
 
     # Dispatch background image analysis if needed
     if pending:
-        asyncio.get_event_loop().create_task(
+        from fastapi.concurrency import run_in_threadpool
+        asyncio.ensure_future(
             _process_image_background(note_id, image_data, image_filename, user)
         )
 
@@ -561,9 +562,11 @@ async def api_add_note(code: str, user: str = Query("default"),
 
 async def _process_image_background(note_id: int, image_data: bytes, filename: str, user_id: str):
     """Background task: try AI analysis first, fallback to OCR."""
+    import logging
+    logger = logging.getLogger(__name__)
     from src.services.image_analysis import analyze_image_ai, analyze_image_ocr
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     content = ""
 
     try:
@@ -571,7 +574,8 @@ async def _process_image_background(note_id: int, image_data: bytes, filename: s
         content = await loop.run_in_executor(
             None, functools.partial(analyze_image_ai, image_data, filename)
         ) or ""
-    except Exception:
+    except Exception as e:
+        logger.error(f"Background AI analysis failed for note {note_id}: {e}")
         content = ""
 
     # Fallback to OCR if AI returned nothing
@@ -581,12 +585,17 @@ async def _process_image_background(note_id: int, image_data: bytes, filename: s
                 content = await loop.run_in_executor(
                     None, functools.partial(_run_ocr, image_data)
                 )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Background OCR failed for note {note_id}: {e}")
             content = ""
 
     # Update the note with the result
     final_content = content if content else "(圖片)"
-    update_note_content(note_id, final_content, user_id)
+    try:
+        update_note_content(note_id, final_content, user_id)
+        logger.info(f"Note {note_id} updated: {final_content[:50]}...")
+    except Exception as e:
+        logger.error(f"Failed to update note {note_id}: {e}")
 
 
 if __name__ == "__main__":
