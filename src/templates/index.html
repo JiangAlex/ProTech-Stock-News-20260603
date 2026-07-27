@@ -256,6 +256,7 @@
         <span>📰 本週新聞備註</span>
         <div style="display:flex;gap:6px;align-items:center;">
             <button class="btn btn-s" onclick="generateDigestNow()" style="font-size:10px;padding:2px 6px;" title="手動產生本週摘要">⚡ 產生</button>
+            <button class="btn btn-s" onclick="downloadDigest()" style="font-size:10px;padding:2px 6px;" title="下載 Markdown 檔案">⬇ 下載</button>
             <span onclick="closeDigestPanel()" style="cursor:pointer;color:#ef5350;font-size:14px;">✕</span>
         </div>
     </div>
@@ -1523,6 +1524,27 @@ async function generateDigestNow() {
         }
     } catch (e) {
         contentEl.innerHTML = '<div style="color:#ef5350;padding:20px;">產生失敗: ' + e.message + '</div>';
+    }
+}
+
+async function downloadDigest() {
+    const activeItem = document.querySelector('.digest-list-item.active');
+    if (!activeItem) { alert('請先選擇一篇週報'); return; }
+    const id = activeItem.dataset.id;
+    try {
+        const data = await fetch(U(`/api/news-digest/${id}`)).then(r => r.json());
+        const filename = (data.title || '週報').replace(/[\/\\]/g, '-') + '.md';
+        const blob = new Blob([data.content], { type: 'text/markdown;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        alert('下載失敗: ' + e.message);
     }
 }
 
