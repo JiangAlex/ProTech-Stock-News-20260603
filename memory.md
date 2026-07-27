@@ -128,3 +128,51 @@ FastAPI 路由按定義順序匹配，靜態路徑必須在動態路徑前：
 - **新 API**: `GET /api/watchlist/notes/{note_id}/image` 回傳 PNG
 - **前端**: 優先用 `has_image` flag + API URL，fallback 舊 `image_path`
 - **遷移**: 6 筆既有圖檔已全部寫入 DB，`data/uploads/` 可清除
+
+## 2026-07-27 新聞備註週報功能
+
+### 功能說明
+每週日 PM6:00 自動整理本週重點新聞為 Markdown 摘要，可在前端「新聞備註」面板中選取瀏覽。
+
+### 新增/修改檔案
+| 檔案 | 說明 |
+|------|------|
+| `src/services/news_digest.py` | **新建** — 呼叫 MiniMax AI 整理本週新聞產生 Markdown |
+| `src/core/database.py` | 新增 `news_weekly_digest` table + CRUD 函式 |
+| `src/server.py` | 新增排程 `_weekly_news_digest_job()` + 3 個 API 端點 |
+| `src/templates/index.html` | 新增「📰 新聞備註」按鈕 + 浮動面板 UI |
+
+### 資料庫
+- 新表 `news_weekly_digest`：
+  - `id` SERIAL PK
+  - `week_start` DATE UNIQUE（週一日期，作為 upsert key）
+  - `week_end` DATE
+  - `title` TEXT
+  - `content` TEXT（Markdown 格式）
+  - `created_at` TIMESTAMP
+
+### API 端點
+| Method | Path | 說明 |
+|--------|------|------|
+| GET | `/api/news-digest` | 列出所有週報（不含 content） |
+| GET | `/api/news-digest/{id}` | 取得單篇完整 Markdown |
+| POST | `/api/news-digest/generate` | 手動觸發產生本週摘要 |
+
+### 排程
+- `_weekly_news_digest_job()`：每週日 18:00 執行
+- 從 `watchlist_notes` (stock_code='NEWS') 撈取本週所有使用者的新聞備註
+- 使用 MiniMax M2.7 產生結構化 Markdown（含本週總覽、分類重點、關注焦點）
+- 寫入 `news_weekly_digest` 表（同一 week_start 會 upsert 覆蓋）
+
+### 前端
+- Header 新增「📰 新聞備註」按鈕
+- 浮動面板（680px 寬，可拖曳）：
+  - 左側：週報清單（自動載入最新一篇）
+  - 右側：Markdown 渲染區
+  - 「⚡ 產生」按鈕：手動觸發 AI 整理
+
+### 注意事項
+- `get_week_news_notes()` 預設查詢所有 user 的 NEWS 備註（user_id=None 時不過濾）
+- 實際新聞 user_id 為 `shared`，非 `default`
+- 2026-07-27 為週一（非週日），排程 target 會自動找到下個週日
+- week_start 為該週的週一日期（Python weekday() 0=Mon）

@@ -60,11 +60,14 @@ def _run_ocr(image_data: bytes) -> str:
 @app.on_event("startup")
 def startup():
     init_db()
+    from src.core.database import init_news_digest_table
+    init_news_digest_table()
     import asyncio
     asyncio.get_event_loop().create_task(_daily_rank_job())
     asyncio.get_event_loop().create_task(_daily_alert_job())
     asyncio.get_event_loop().create_task(_daily_us_index_job())
     asyncio.get_event_loop().create_task(_realtime_alert_job())
+    asyncio.get_event_loop().create_task(_weekly_news_digest_job())
 
 
 async def _daily_rank_job():
@@ -236,6 +239,37 @@ async def _realtime_alert_job():
 
         # Sleep 60 seconds
         await asyncio.sleep(60)
+
+
+async def _weekly_news_digest_job():
+    """Generate weekly news digest every Sunday at 18:00."""
+    import asyncio
+    from datetime import datetime, timedelta
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+
+    while True:
+        now = datetime.now()
+        # Find next Sunday 18:00
+        days_until_sunday = (6 - now.weekday()) % 7
+        if days_until_sunday == 0 and now.hour >= 18:
+            days_until_sunday = 7
+        target = (now + timedelta(days=days_until_sunday)).replace(
+            hour=18, minute=0, second=0, microsecond=0
+        )
+        wait_seconds = (target - now).total_seconds()
+        _logger.info(f"Weekly digest job: next run at {target} (wait {wait_seconds:.0f}s)")
+        await asyncio.sleep(wait_seconds)
+
+        try:
+            from src.services.news_digest import generate_weekly_digest
+            result = generate_weekly_digest()
+            if result:
+                _logger.info(f"Weekly digest generated: {result['title']}")
+            else:
+                _logger.info("Weekly digest: no news to summarize this week")
+        except Exception as e:
+            _logger.error(f"Weekly digest job error: {e}")
 
 
 # --- US Index API ---
@@ -420,6 +454,35 @@ def api_search_notes(q: str = Query(""), user: str = Query("default"), ai: bool 
 def api_ask_notes(q: str = Query(""), user: str = Query("default")):
     from src.services.semantic_search import ask_news
     return ask_news(q, user)
+
+
+# --- News Weekly Digest ---
+
+@app.get("/api/news-digest")
+def api_get_news_digests():
+    """List all weekly news digests."""
+    from src.core.database import get_news_digests
+    return get_news_digests()
+
+
+@app.get("/api/news-digest/{digest_id}")
+def api_get_news_digest(digest_id: int):
+    """Get a single weekly digest with full markdown content."""
+    from src.core.database import get_news_digest_by_id
+    result = get_news_digest_by_id(digest_id)
+    if not result:
+        return Response(status_code=404)
+    return result
+
+
+@app.post("/api/news-digest/generate")
+def api_generate_news_digest():
+    """Manually trigger weekly digest generation (for testing)."""
+    from src.services.news_digest import generate_weekly_digest
+    result = generate_weekly_digest()
+    if result:
+        return {"ok": True, **result}
+    return {"ok": False, "message": "本週無新聞可整理"}
 
 
 # --- Backtest ---

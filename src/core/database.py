@@ -432,3 +432,101 @@ def update_alert_settings(user_id="default", run_time="18:00", telegram_chat_id=
         conn.commit()
     finally:
         conn.close()
+
+
+# --- News Weekly Digest ---
+
+def init_news_digest_table():
+    """Create news_weekly_digest table if not exists."""
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS news_weekly_digest (
+                id SERIAL PRIMARY KEY,
+                week_start DATE NOT NULL UNIQUE,
+                week_end DATE NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_news_digests():
+    """List all weekly digests (without full content)."""
+    conn = _conn()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT id, week_start, week_end, title, created_at
+            FROM news_weekly_digest
+            ORDER BY week_start DESC
+        """)
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def get_news_digest_by_id(digest_id):
+    """Get a single digest with full content."""
+    conn = _conn()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT * FROM news_weekly_digest WHERE id = %s", (digest_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def save_news_digest(week_start, week_end, title, content):
+    """Save a weekly digest. Upsert by week_start."""
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        # Try upsert first
+        cur.execute("""
+            INSERT INTO news_weekly_digest (week_start, week_end, title, content)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (week_start) DO UPDATE SET
+                week_end = EXCLUDED.week_end,
+                title = EXCLUDED.title,
+                content = EXCLUDED.content,
+                created_at = NOW()
+            RETURNING id
+        """, (week_start, week_end, title, content))
+        new_id = cur.fetchone()[0]
+        conn.commit()
+        return new_id
+    finally:
+        conn.close()
+
+
+def get_week_news_notes(start_date, end_date, user_id=None):
+    """Fetch news notes between start_date and end_date. If user_id is None, fetch all users."""
+    conn = _conn()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        if user_id:
+            cur.execute("""
+                SELECT id, content, news_date, created_at
+                FROM watchlist_notes
+                WHERE stock_code = 'NEWS' AND user_id = %s
+                  AND (news_date >= %s AND news_date <= %s)
+                ORDER BY news_date ASC, created_at ASC
+            """, (user_id, start_date, end_date))
+        else:
+            cur.execute("""
+                SELECT id, content, news_date, created_at
+                FROM watchlist_notes
+                WHERE stock_code = 'NEWS'
+                  AND (news_date >= %s AND news_date <= %s)
+                ORDER BY news_date ASC, created_at ASC
+            """, (start_date, end_date))
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
