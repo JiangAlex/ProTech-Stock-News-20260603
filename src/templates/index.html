@@ -163,7 +163,7 @@
         <!-- Fundamental charts -->
         <div class="fund-charts" id="fundCharts">
             <div class="fund-chart"><h3>年度營收走勢</h3><div id="revenueChart" style="height:170px"></div></div>
-            <div class="fund-chart"><h3>歷年股利</h3><div id="dividendChart" style="height:170px"></div></div>
+            <div class="fund-chart"><h3>歷年股利 <a id="yahooDividendLink" href="#" target="_blank" title="Yahoo 股利頁面" style="font-size:14px;margin-left:6px;text-decoration:none;vertical-align:middle;">&#x1F517;</a></h3><div id="dividendChart" style="height:170px"></div></div>
         </div>
     </div>
 
@@ -703,6 +703,7 @@ async function loadFundamentals(code){
     const rev=await revRes.json(), div=await divRes.json();
     renderRevenueChart('revenueChart', rev);
     renderDividendChart('dividendChart', div);
+    document.getElementById('yahooDividendLink').href=`https://tw.stock.yahoo.com/quote/${code}.TW/dividend`;
 }
 
 function renderRevenueChart(id, data){
