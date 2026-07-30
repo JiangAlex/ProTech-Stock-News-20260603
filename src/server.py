@@ -64,12 +64,15 @@ def startup():
     init_db()
     from src.core.database import init_news_digest_table
     init_news_digest_table()
+    from src.services.market_scan import init_daily_indicators_table
+    init_daily_indicators_table()
     import asyncio
     asyncio.get_event_loop().create_task(_daily_rank_job())
     asyncio.get_event_loop().create_task(_daily_alert_job())
     asyncio.get_event_loop().create_task(_daily_us_index_job())
     asyncio.get_event_loop().create_task(_realtime_alert_job())
     asyncio.get_event_loop().create_task(_weekly_news_digest_job())
+    asyncio.get_event_loop().create_task(_daily_market_scan_job())
 
 
 async def _daily_rank_job():
@@ -160,6 +163,29 @@ async def _daily_us_index_job():
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"US index job error: {e}")
+
+
+async def _daily_market_scan_job():
+    """Compute market indicators daily at 18:00 (only on trading days)."""
+    import asyncio
+    from datetime import datetime, timedelta
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+    while True:
+        now = datetime.now()
+        target = now.replace(hour=18, minute=0, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+        await asyncio.sleep((target - now).total_seconds())
+        try:
+            from src.services.market_scan import run_daily_scan
+            count = run_daily_scan()
+            if count > 0:
+                _logger.info(f"Market scan completed: {count} stocks")
+            else:
+                _logger.info("Market scan skipped (not a trading day or no data)")
+        except Exception as e:
+            _logger.error(f"Market scan job error: {e}")
 
 
 async def _realtime_alert_job():
@@ -405,6 +431,146 @@ def api_update_analysis_preferences(body: dict):
         custom_prompt=body.get("custom_prompt", ""),
     )
     return {"ok": True}
+
+
+@app.get("/api/market-scan")
+def api_market_scan(
+    rsi_min: float = Query(None), rsi_max: float = Query(None),
+    ma_arrangement: str = Query(None),
+    volume_ratio_min: float = Query(None),
+    change_pct_min: float = Query(None), change_pct_max: float = Query(None),
+    volume_trend: str = Query(None),
+    industry: str = Query(None),
+    market: str = Query(None),
+    limit: int = Query(50, le=200),
+):
+    """Scan market with conditions from daily_indicators."""
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    from src.core.pg_client import DB_CONFIG
+
+    conn = psycopg2.connect(**DB_CONFIG)
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        # Get latest date in daily_indicators
+        cur.execute("SELECT MAX(date) FROM daily_indicators")
+        latest = cur.fetchone()["max"]
+        if not latest:
+            return {"date": None, "results": [], "total": 0}
+
+        # Build dynamic WHERE
+        conditions = ["di.date = %s"]
+        params = [latest]
+
+        if rsi_min is not None:
+            conditions.append("di.rsi14 >= %s")
+            params.append(rsi_min)
+        if rsi_max is not None:
+            conditions.append("di.rsi14 <= %s")
+            params.append(rsi_max)
+        if ma_arrangement:
+            conditions.append("di.ma_arrangement = %s")
+            params.append(ma_arrangement)
+        if volume_ratio_min is not None:
+            conditions.append("di.volume_ratio >= %s")
+            params.append(volume_ratio_min)
+        if change_pct_min is not None:
+            conditions.append("di.change_pct >= %s")
+            params.append(change_pct_min)
+        if change_pct_max is not None:
+            conditions.append("di.change_pct <= %s")
+            params.append(change_pct_max)
+        if volume_trend:
+            conditions.append("di.volume_trend = %s")
+            params.append(volume_trend)
+        if industry:
+            conditions.append("sb.industry = %s")
+            params.append(industry)
+        if market:
+            conditions.append("sb.market = %s")
+            params.append(market)
+
+        where_clause = " AND ".join(conditions)
+        params.append(limit)
+
+        sql = f"""
+            SELECT di.stock_code, sb.stock_name, sb.industry, sb.market,
+                   di.close, di.change_pct, di.ma_arrangement,
+                   di.rsi14, di.volume_ratio, di.volume_trend,
+                   di.macd_dif, di.macd_histogram, di.patterns
+            FROM daily_indicators di
+            JOIN stock_basic sb ON sb.stock_code = di.stock_code
+            WHERE {where_clause}
+            ORDER BY di.volume DESC
+            LIMIT %s
+        """
+        cur.execute(sql, params)
+        results = [dict(r) for r in cur.fetchall()]
+
+        # Get total count
+        count_sql = f"SELECT COUNT(*) FROM daily_indicators di JOIN stock_basic sb ON sb.stock_code = di.stock_code WHERE {where_clause}"
+        cur.execute(count_sql, params[:-1])  # exclude limit
+        total = cur.fetchone()["count"]
+
+        return {"date": latest.isoformat(), "results": results, "total": total}
+    finally:
+        conn.close()
+
+
+@app.get("/api/stock/{code}/related")
+def api_related_stocks(code: str, user: str = Query("default")):
+    """Get related stocks (same industry) with their indicators."""
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    from src.core.pg_client import DB_CONFIG
+
+    conn = psycopg2.connect(**DB_CONFIG)
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        # Get this stock's industry
+        cur.execute("SELECT industry FROM stock_basic WHERE stock_code = %s", (code,))
+        row = cur.fetchone()
+        if not row or not row["industry"]:
+            return {"industry": None, "stocks": []}
+
+        industry = row["industry"]
+
+        # Get latest indicators for same industry
+        cur.execute("SELECT MAX(date) FROM daily_indicators")
+        latest = cur.fetchone()["max"]
+        if not latest:
+            return {"industry": industry, "stocks": []}
+
+        cur.execute("""
+            SELECT di.stock_code, sb.stock_name,
+                   di.close, di.change_pct, di.ma_arrangement,
+                   di.rsi14, di.volume_ratio, di.volume_trend,
+                   di.macd_histogram, di.patterns
+            FROM daily_indicators di
+            JOIN stock_basic sb ON sb.stock_code = di.stock_code
+            WHERE sb.industry = %s AND di.date = %s AND di.stock_code != %s
+            ORDER BY di.volume DESC
+            LIMIT 10
+        """, (industry, latest, code))
+        stocks = [dict(r) for r in cur.fetchall()]
+
+        return {"industry": industry, "date": latest.isoformat(), "stocks": stocks}
+    finally:
+        conn.close()
+
+
+@app.get("/api/industries")
+def api_industries():
+    """Get list of all industries."""
+    import psycopg2
+    from src.core.pg_client import DB_CONFIG
+    conn = psycopg2.connect(**DB_CONFIG)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT industry FROM stock_basic WHERE industry IS NOT NULL ORDER BY industry")
+        return [r[0] for r in cur.fetchall()]
+    finally:
+        conn.close()
 
 
 @app.get("/api/stock/{code}/revenue")

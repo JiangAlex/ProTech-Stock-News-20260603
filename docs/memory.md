@@ -142,3 +142,90 @@ src/
 4. 分析結果同時寫入 `_conversation_history` 供追問
 5. 前端 K 線圖工具列加「🤖 AI 技術分析」按鈕
 6. 前端顯示分析結果，可編輯/刪除
+
+---
+
+## 四、全市場掃描 + 產業分類 + 跨股票 AI 分析
+
+> 討論日期：2026-07-30
+
+### 4.1 三大功能
+
+| 功能 | 說明 | 資料來源 | 介面 |
+|------|------|----------|------|
+| A. 跨股票問答 | 「RSI<30 的股票有哪些？」 | `daily_indicators` 篩選 → LLM | AI 搜尋框 |
+| B. 相關股比較 | AI 分析時自動帶入同產業股 | `daily_indicators` + 產業分類 | AI 分析自動帶入 |
+| C. 全市場掃描 | 多條件篩選（可動態新增/修改） | `daily_indicators` 條件查詢 | 新增篩選器 UI |
+
+### 4.2 架構設計
+
+```
+每日 18:00 排程（僅交易日執行）
+  → is_trading_day()：查 DB 今天有無 K 線資料
+  → 批次撈全市場 K 線 → 計算指標 → 存入 daily_indicators 表
+  → A/B/C 所有查詢從 daily_indicators 秒回
+```
+
+### 4.3 daily_indicators 表設計
+
+```sql
+daily_indicators (
+  stock_code TEXT,
+  date DATE,
+  close FLOAT,
+  change_pct FLOAT,
+  ma5 FLOAT, ma10 FLOAT, ma20 FLOAT, ma60 FLOAT,
+  ma5_dir TEXT, ma10_dir TEXT, ma20_dir TEXT, ma60_dir TEXT,
+  ma_arrangement TEXT,  -- 多頭/空頭/糾結
+  macd_dif FLOAT, macd_signal FLOAT, macd_histogram FLOAT,
+  rsi14 FLOAT,
+  boll_upper FLOAT, boll_middle FLOAT, boll_lower FLOAT, boll_bandwidth FLOAT,
+  volume BIGINT, volume_ratio FLOAT, volume_trend TEXT,
+  patterns JSONB,  -- [{name, signal}]
+  PRIMARY KEY (stock_code, date)
+)
+```
+
+### 4.4 產業分類來源
+
+| 來源 | API | 筆數 | 欄位 |
+|------|-----|------|------|
+| TWSE 上市 | `openapi.twse.com.tw/v1/opendata/t187ap03_L` | 1092 檔 | 公司代號 + 產業別（代碼） |
+| TPEx 上櫃 | `tpex.org.tw/openapi/v1/mopsfin_t187ap03_O` | 890 檔 | SecuritiesCompanyCode + SecuritiesIndustryCode |
+
+- `stock_basic` 表加 `industry` 欄位
+- 產業代碼對照表（01=水泥、24=半導體...共 33 種）
+- 更新頻率：每月一次即可
+
+### 4.5 相關股比較 — 同產業分類
+
+AI 分析單一股票時，自動從 `daily_indicators` 撈同 `industry` 的股票指標帶入 prompt。
+
+### 4.6 排程設計
+
+- 時間：18:00（給 QuantStockDB 充分時間寫入當日 K 線）
+- 判斷交易日：查 `daily_kline` 今天有無資料（不需維護假日表）
+- 非交易日跳過，log「今日非交易日」
+
+### 4.7 可行性測試結果（2026-07-30）
+
+| 測試項目 | 結果 | 耗時 |
+|----------|------|------|
+| TWSE 上市產業分類 | ✅ 1092 檔 | 0.16 秒 |
+| TPEx 上櫃產業分類 | ✅ 890 檔 | < 1 秒 |
+| 全市場 K 線批次查詢 | 123,597 筆 | 3.49 秒 |
+| 全市場指標計算（1093 檔） | ✅ 全部完成 | 0.36 秒 |
+| **總計** | **4.3 秒** | 無效能問題 |
+
+### 4.8 實作規劃
+
+1. `stock_basic` 加 `industry` 欄位 + 產業代碼對照表
+2. 新增 `src/services/industry_service.py` — 從 TWSE/TPEx 抓產業分類
+3. 新增 `daily_indicators` 表
+4. 新增 `src/services/market_scan.py` — 全市場指標計算 + 寫入 DB
+5. 排程：18:00 執行（含 is_trading_day 判斷）
+6. API：`GET /api/market-scan?conditions=...` — 條件篩選
+7. API：`GET /api/stock/{code}/related` — 同產業股指標
+8. 前端：全市場掃描篩選器 UI
+9. AI 分析自動帶入同產業比較
+10. AI 搜尋框支援跨股票問答
