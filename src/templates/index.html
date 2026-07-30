@@ -85,6 +85,7 @@
         .digest-content code{background:#0f1117;padding:1px 4px;border-radius:3px;font-size:11px}
         .digest-content hr{border:none;border-top:1px solid #2a2d38;margin:10px 0}
         .digest-content p{margin:6px 0}
+        @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
     </style>
 </head>
 <body>
@@ -1376,9 +1377,30 @@ async function uploadNewsNote(files){
     loadNewsNotes();
     // Auto-refresh after background AI/OCR processing completes
     if(hasPending){
-        showToast('🤖 AI 分析中，稍後自動更新...');
-        setTimeout(()=>loadNewsNotes(), 8000);
-        setTimeout(()=>loadNewsNotes(), 20000);
+        const pendingCount=done-skipped.length;
+        const aiProg=document.createElement('div');
+        aiProg.style.cssText='position:fixed;bottom:20px;right:20px;background:#1a1d28;border:1px solid #ffb74d;color:#e1e5ea;padding:10px 16px;border-radius:6px;font-size:12px;z-index:99999;box-shadow:0 4px 16px rgba(0,0,0,0.5);display:flex;align-items:center;gap:8px;';
+        aiProg.innerHTML=`<span style="animation:spin 1s linear infinite;display:inline-block;">⏳</span><span id="aiProgText">🤖 AI 分析中 (0/${pendingCount} 完成)...</span>`;
+        document.body.appendChild(aiProg);
+        // Poll until no more "⏳ 分析中..." notes remain
+        let pollCount=0;
+        const maxPoll=60; // max 5 minutes (every 5s)
+        const pollInterval=setInterval(async()=>{
+            pollCount++;
+            const latestNotes=await fetch('/api/watchlist/NEWS/notes?user=shared').then(r=>r.json());
+            const stillPending=latestNotes.filter(n=>n.content&&n.content.includes('⏳ 分析中')).length;
+            const completed=pendingCount-stillPending;
+            const progText=document.getElementById('aiProgText');
+            if(progText)progText.textContent=`🤖 AI 分析中 (${completed}/${pendingCount} 完成)...`;
+            loadNewsNotes();
+            if(stillPending===0||pollCount>=maxPoll){
+                clearInterval(pollInterval);
+                aiProg.remove();
+                if(stillPending===0) showToast(`✓ AI 分析全部完成 (${pendingCount} 張)`);
+                else showToast('⚠ 部分圖片仍在分析中，請稍後手動重新整理');
+                loadNewsNotes();
+            }
+        },5000);
     }
 }
 async function delNewsNote(id){
