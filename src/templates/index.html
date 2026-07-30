@@ -1350,6 +1350,8 @@ async function submitNewsNote(){
 async function uploadNewsNote(files){
     if(!files||!files.length)return;
     const dateInp=document.getElementById('newsNoteDate');
+    const titleInp=document.getElementById('newsNoteTitle');
+    const title=titleInp.value.trim();
     let skipped=[];
     const total=files.length;
     let hasPending=false;
@@ -1360,7 +1362,7 @@ async function uploadNewsNote(files){
     document.body.appendChild(prog);
     let done=0;
     for(const file of files){
-        const fd=new FormData();fd.append('content','');fd.append('image',file);fd.append('news_date',dateInp.value);
+        const fd=new FormData();fd.append('content','');fd.append('image',file);fd.append('news_date',dateInp.value);fd.append('title',title);
         const r=await fetch('/api/watchlist/NEWS/notes?user=shared',{method:'POST',body:fd});
         const res=await r.json();
         if(res.error==='duplicate') skipped.push(file.name);
