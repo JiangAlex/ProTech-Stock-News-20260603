@@ -1023,9 +1023,10 @@ async function renderFloatNotes(code){
         ${notes.map(n=>{
             const isAi=n.title&&n.title.includes('AI 技術分析');
             if(isAi){
+                const vMark=n.verification==='correct'?'<span style="color:#26a69a;font-size:10px;"> ✅</span>':n.verification==='incorrect'?'<span style="color:#ef5350;font-size:10px;"> ❌</span>':'';
                 return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;padding:3px 0;border-top:1px solid #2a2d38;">
                     <div style="flex:1;cursor:pointer;" onclick="showAiNoteInPanel(${n.id},'${code}')">
-                        <div style="font-size:11px;color:#4fc3f7;">${n.title}</div>
+                        <div style="font-size:11px;color:#4fc3f7;">${n.title}${vMark}</div>
                         <div style="font-size:9px;color:#6b7a8d;">${n.news_date||''} ${n.created_at||''}</div>
                     </div>
                     <span onclick="editFloatNote(${n.id},'${code}')" style="color:#4fc3f7;cursor:pointer;font-size:11px;" title="編輯">✏</span>
@@ -1055,7 +1056,21 @@ async function showAiNoteInPanel(id,code){
     const panel=document.getElementById('aiAnalysisPanel');
     const content=document.getElementById('aiAnalysisContent');
     panel.style.display='block';
-    content.innerHTML=note.content.replace(/</g,'&lt;').replace(/\n/g,'<br>');
+    let html=note.content.replace(/</g,'&lt;').replace(/\n/g,'<br>');
+    // Verification section
+    html+=`<div style="border-top:1px solid #2a2d38;padding-top:8px;margin-top:8px;display:flex;align-items:center;gap:12px;">`;
+    html+=`<span style="font-size:11px;color:#6b7a8d;">結果驗證：</span>`;
+    if(note.verification==='correct'){
+        html+=`<span style="font-size:11px;color:#26a69a;">✅ 已標記正確</span>`;
+    }else if(note.verification==='incorrect'){
+        html+=`<span style="font-size:11px;color:#ef5350;">❌ 已標記錯誤</span>`;
+    }else{
+        html+=`<button onclick="verifyAnalysis(${note.id},'correct')" class="btn btn-s" style="font-size:11px;padding:3px 8px;background:#1a3a2a;border-color:#26a69a;">✅ 正確</button>`;
+        html+=`<button onclick="verifyAnalysis(${note.id},'incorrect')" class="btn btn-s" style="font-size:11px;padding:3px 8px;background:#3a1a1a;border-color:#ef5350;">❌ 錯誤</button>`;
+    }
+    html+=`<span id="verifyStatus" style="font-size:10px;color:#6b7a8d;"></span>`;
+    html+=`</div>`;
+    content.innerHTML=html;
 }
 async function editFloatNote(id,code){
     const notes=await fetch(U(`/api/watchlist/${code}/notes`)).then(r=>r.json());

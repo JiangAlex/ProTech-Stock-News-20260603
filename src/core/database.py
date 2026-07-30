@@ -165,7 +165,7 @@ def get_notes(stock_code, user_id="default"):
     conn = _conn()
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("SELECT id, stock_code, content, image_path, user_id, created_at, news_date, title, (image_data IS NOT NULL) AS has_image FROM watchlist_notes WHERE stock_code = %s AND user_id = %s ORDER BY news_date DESC NULLS LAST, created_at DESC", (stock_code, user_id))
+        cur.execute("SELECT id, stock_code, content, image_path, user_id, created_at, news_date, title, verification, (image_data IS NOT NULL) AS has_image FROM watchlist_notes WHERE stock_code = %s AND user_id = %s ORDER BY news_date DESC NULLS LAST, created_at DESC", (stock_code, user_id))
         return [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
