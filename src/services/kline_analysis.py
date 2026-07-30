@@ -580,6 +580,39 @@ def analyze_kline(stock_code: str, stock_name: str, kline_data: list[dict],
     except Exception:
         pass
 
+    # Inject related stocks (same industry) comparison
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        from src.core.pg_client import DB_CONFIG
+        conn = psycopg2.connect(**DB_CONFIG)
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute("SELECT industry FROM stock_basic WHERE stock_code = %s", (stock_code,))
+            row = cur.fetchone()
+            if row and row["industry"]:
+                industry = row["industry"]
+                cur.execute("""
+                    SELECT di.stock_code, sb.stock_name, di.close, di.change_pct,
+                           di.ma_arrangement, di.rsi14, di.volume_ratio
+                    FROM daily_indicators di
+                    JOIN stock_basic sb ON sb.stock_code = di.stock_code
+                    WHERE sb.industry = %s AND di.date = (SELECT MAX(date) FROM daily_indicators)
+                      AND di.stock_code != %s
+                    ORDER BY di.volume DESC LIMIT 5
+                """, (industry, stock_code))
+                related = cur.fetchall()
+                if related:
+                    related_text = "\n".join([
+                        f"  {r['stock_code']} {r['stock_name']}: {r['close']} ({'+' if (r['change_pct'] or 0)>=0 else ''}{r['change_pct']}%) RSI={r['rsi14']} {r['ma_arrangement']} 量比={r['volume_ratio']}"
+                        for r in related
+                    ])
+                    prompt += f"\n\n【同產業（{industry}）比較】\n{related_text}\n請參考同業表現判斷個股相對強弱。"
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
     # Build messages with history
     history = _analysis_history.get(user_id, [])
     messages = [{"role": "system", "content": "你是一位資深台股技術分析師，根據技術指標和K線型態提供專業分析。繁體中文回答。"}]

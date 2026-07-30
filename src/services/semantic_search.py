@@ -182,6 +182,13 @@ def ask_news(query: str, user_id: str = "default") -> dict:
         results = search_result["results"]
 
     if not results:
+        # Check if this is a technical/market scan question
+        tech_patterns = r'(RSI|rsi|均線|多頭|空頭|超買|超賣|量比|放量|縮量|型態|突破|支撐|壓力|哪些股票|掃描|篩選|排列|MACD|macd|布林)'
+        if re.search(tech_patterns, query):
+            # Try to answer from daily_indicators
+            market_answer = _answer_from_indicators(query, user_id)
+            if market_answer:
+                return market_answer
         return {"answer": "❌ 找不到相關新聞備註。", "keywords": keywords, "sources": []}
 
     # Step 2: Build context from search results (top 15)
@@ -281,5 +288,89 @@ def _fetch_recent_notes(user_id: str, days: int = 7) -> list[dict]:
         """
         cur.execute(sql, [user_id, days, days])
         return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def _answer_from_indicators(query: str, user_id: str = "default") -> dict | None:
+    """Answer technical/market scan questions using daily_indicators table."""
+    import re
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    from src.core.pg_client import DB_CONFIG
+
+    # Build conditions from query
+    conditions = []
+    params = []
+
+    # RSI conditions
+    if re.search(r'RSI\s*[<＜]\s*30|超賣|rsi.*30', query, re.IGNORECASE):
+        conditions.append("di.rsi14 < 30")
+    elif re.search(r'RSI\s*[>＞]\s*70|超買|rsi.*70', query, re.IGNORECASE):
+        conditions.append("di.rsi14 > 70")
+    elif re.search(r'RSI\s*[<＜]\s*50|rsi.*50', query, re.IGNORECASE):
+        conditions.append("di.rsi14 < 50")
+
+    # MA arrangement
+    if re.search(r'多頭排列', query):
+        conditions.append("di.ma_arrangement = '多頭排列'")
+    elif re.search(r'空頭排列', query):
+        conditions.append("di.ma_arrangement = '空頭排列'")
+
+    # Volume
+    if re.search(r'放量|爆量', query):
+        conditions.append("di.volume_trend = '放量'")
+    elif re.search(r'縮量', query):
+        conditions.append("di.volume_trend = '縮量'")
+
+    # If no specific conditions detected, try a general scan
+    if not conditions:
+        conditions.append("1=1")
+
+    conn = psycopg2.connect(**DB_CONFIG)
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT MAX(date) FROM daily_indicators")
+        latest = cur.fetchone()["max"]
+        if not latest:
+            return None
+
+        where = " AND ".join(["di.date = %s"] + conditions)
+        params = [latest]
+
+        sql = f"""
+            SELECT di.stock_code, sb.stock_name, sb.industry,
+                   di.close, di.change_pct, di.ma_arrangement,
+                   di.rsi14, di.volume_ratio, di.volume_trend
+            FROM daily_indicators di
+            JOIN stock_basic sb ON sb.stock_code = di.stock_code
+            WHERE {where}
+            ORDER BY di.volume DESC
+            LIMIT 20
+        """
+        cur.execute(sql, params)
+        results = [dict(r) for r in cur.fetchall()]
+
+        if not results:
+            return None
+
+        # Build answer text
+        total_sql = f"SELECT COUNT(*) FROM daily_indicators di JOIN stock_basic sb ON sb.stock_code = di.stock_code WHERE {where}"
+        cur.execute(total_sql, params)
+        total = cur.fetchone()["count"]
+
+        lines = [f"📡 全市場掃描結果（{latest}）— 共 {total} 檔符合條件：\n"]
+        for r in results:
+            chg = f"+{r['change_pct']}" if (r['change_pct'] or 0) >= 0 else str(r['change_pct'])
+            lines.append(f"• {r['stock_code']} {r['stock_name']}（{r['industry'] or ''}）— {r['close']} ({chg}%) RSI={r['rsi14']:.1f} {r['ma_arrangement']} 量比={r['volume_ratio']}")
+
+        if total > 20:
+            lines.append(f"\n...還有 {total - 20} 檔，請使用「📡 掃描」功能查看完整列表。")
+
+        answer = "\n".join(lines)
+        return {"answer": answer, "keywords": [query], "sources": []}
+    except Exception as e:
+        logger.error(f"_answer_from_indicators failed: {e}")
+        return None
     finally:
         conn.close()
