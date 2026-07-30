@@ -594,7 +594,7 @@ def api_get_notes(code: str, user: str = Query("default")):
 @app.post("/api/watchlist/{code}/notes")
 async def api_add_note(code: str, user: str = Query("default"),
                        content: str = Form(""), image: UploadFile = File(None),
-                       news_date: str = Form("")):
+                       news_date: str = Form(""), title: str = Form("")):
     image_data = None
     image_filename = ""
     if image and image.filename:
@@ -613,7 +613,7 @@ async def api_add_note(code: str, user: str = Query("default"),
     # Save note immediately (with placeholder if image needs processing)
     pending = bool(image_data and not content)
     save_content = "⏳ 分析中..." if pending else content
-    note_id = add_note(code, save_content, "", user, image_data, news_date if news_date else None, image_filename)
+    note_id = add_note(code, save_content, "", user, image_data, news_date if news_date else None, image_filename, title)
 
     # Dispatch background image analysis if needed
     if pending:

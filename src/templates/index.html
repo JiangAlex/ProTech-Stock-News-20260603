@@ -207,9 +207,14 @@
             <h2>📋 新聞備註</h2>
         </div>
         <div style="padding:10px 14px;">
-            <div style="display:flex;gap:4px;margin-bottom:8px;align-items:center;">
-                <input type="date" id="newsNoteDate" style="padding:5px 8px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;">
-                <textarea id="newsNoteInput" placeholder="輸入新聞備註..." rows="2" style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;resize:vertical;line-height:1.5;"></textarea>
+            <div style="display:flex;gap:4px;margin-bottom:8px;align-items:flex-start;">
+                <div style="display:flex;flex-direction:column;gap:4px;flex:1;">
+                    <div style="display:flex;gap:4px;align-items:center;">
+                        <input type="date" id="newsNoteDate" style="padding:5px 8px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;">
+                        <input type="text" id="newsNoteTitle" placeholder="標題（必填）" style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;">
+                    </div>
+                    <textarea id="newsNoteInput" placeholder="輸入新聞備註內容..." rows="2" style="width:100%;padding:6px 10px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;resize:vertical;line-height:1.5;"></textarea>
+                </div>
                 <label class="btn btn-s" style="cursor:pointer;">📎<input type="file" accept="image/*" multiple style="display:none;" onchange="uploadNewsNote(this.files)"></label>
                 <button class="btn btn-p" onclick="submitNewsNote()">送出</button>
             </div>
@@ -1288,40 +1293,44 @@ async function loadNewsNotes(){
     const sortedDates=Object.keys(groups).sort((a,b)=>b.localeCompare(a));
     const showDates=sortedDates.slice(0,5);
     const moreDates=sortedDates.slice(5);
-    el.innerHTML=showDates.map((date,di)=>`
-        <div style="margin-bottom:8px;">
-            <div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none';this.querySelector('.nn-arrow').textContent=this.nextElementSibling.style.display==='none'?'▸':'▾'" style="font-size:12px;font-weight:600;color:#ffb74d;padding:6px 4px;border-bottom:1px solid #3a3d48;cursor:pointer;user-select:none;"><span class="nn-arrow">▸</span> 📅 ${date} (${groups[date].length})</div>
-            <div style="display:none;">
-                ${groups[date].map(n=>`<div data-note="${(n.content||'').replace(/"/g,'')}" style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:4px 8px;">
-                    <div style="flex:1;font-size:11px;color:#ccc;">
-                        ${n.content?`<span style="white-space:pre-wrap;">${n.content.replace(/</g,'&lt;')}</span>`:''}
-                        ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:200px;max-height:120px;border-radius:4px;display:block;margin-top:4px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:''}
-                    </div>
-                    <span onclick="editNewsNote(${n.id})" style="color:#4fc3f7;cursor:pointer;font-size:11px;" title="編輯">✎</span>
-                    <span onclick="delNewsNote(${n.id})" style="color:#ef5350;cursor:pointer;font-size:11px;">✕</span>
-                </div>`).join('')}
+
+    function renderNoteItem(n){
+        const title=n.title||'(無標題)';
+        const safeContent=(n.content||'').replace(/</g,'&lt;');
+        const safeTitle=title.replace(/</g,'&lt;');
+        return `<div data-note="${(n.content||'').replace(/"/g,'')}" style="margin-bottom:2px;margin-left:12px;">
+            <div onclick="var bd=this.nextElementSibling;bd.style.display=bd.style.display==='none'?'':'none';this.querySelector('.nt-arrow').textContent=bd.style.display==='none'?'▸':'▾'" style="font-size:11px;color:#81d4fa;padding:4px 6px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;border-bottom:1px solid #2a2d38;">
+                <span class="nt-arrow" style="font-size:10px;width:10px;">▸</span>
+                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${safeTitle}</span>
+                <span onclick="event.stopPropagation();editNewsNote(${n.id})" style="color:#4fc3f7;cursor:pointer;font-size:11px;" title="編輯">✎</span>
+                <span onclick="event.stopPropagation();delNewsNote(${n.id})" style="color:#ef5350;cursor:pointer;font-size:11px;">✕</span>
             </div>
-        </div>
-    `).join('')+(moreDates.length?`<div id="newsNotesMore" style="display:none;">${moreDates.map(date=>`
-        <div style="margin-bottom:8px;">
+            <div style="display:none;padding:6px 8px 6px 20px;font-size:11px;color:#ccc;border-left:2px solid #3a3d48;margin-left:4px;">
+                ${safeContent?`<span style="white-space:pre-wrap;">${safeContent}</span>`:'<span style="color:#6b7a8d;">(無內容)</span>'}
+                ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:200px;max-height:120px;border-radius:4px;display:block;margin-top:4px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:''}
+            </div>
+        </div>`;
+    }
+
+    function renderDateGroup(date){
+        return `<div style="margin-bottom:8px;">
             <div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none';this.querySelector('.nn-arrow').textContent=this.nextElementSibling.style.display==='none'?'▸':'▾'" style="font-size:12px;font-weight:600;color:#ffb74d;padding:6px 4px;border-bottom:1px solid #3a3d48;cursor:pointer;user-select:none;"><span class="nn-arrow">▸</span> 📅 ${date} (${groups[date].length})</div>
-            <div style="display:none;">${groups[date].map(n=>`<div data-note="${(n.content||'').replace(/"/g,'')}" style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:4px 8px;">
-                    <div style="flex:1;font-size:11px;color:#ccc;">
-                        ${n.content?`<span style="white-space:pre-wrap;">${n.content.replace(/</g,'&lt;')}</span>`:''}
-                        ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:200px;max-height:120px;border-radius:4px;display:block;margin-top:4px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:''}
-                    </div>
-                    <span onclick="editNewsNote(${n.id})" style="color:#4fc3f7;cursor:pointer;font-size:11px;" title="編輯">✎</span>
-                    <span onclick="delNewsNote(${n.id})" style="color:#ef5350;cursor:pointer;font-size:11px;">✕</span>
-                </div>`).join('')}</div>
-        </div>`).join('')}</div><button class="btn btn-s" onclick="document.getElementById('newsNotesMore').style.display='block';this.style.display='none';" style="font-size:10px;padding:4px 8px;margin-top:4px;">顯示更多 (${moreDates.length} 天)</button>`:'');
+            <div style="display:none;">${groups[date].map(n=>renderNoteItem(n)).join('')}</div>
+        </div>`;
+    }
+
+    el.innerHTML=showDates.map(date=>renderDateGroup(date)).join('')+(moreDates.length?`<div id="newsNotesMore" style="display:none;">${moreDates.map(date=>renderDateGroup(date)).join('')}</div><button class="btn btn-s" onclick="document.getElementById('newsNotesMore').style.display='block';this.style.display='none';" style="font-size:10px;padding:4px 8px;margin-top:4px;">顯示更多 (${moreDates.length} 天)</button>`:'');
 }
 async function submitNewsNote(){
     const inp=document.getElementById('newsNoteInput');
     const dateInp=document.getElementById('newsNoteDate');
-    const v=inp.value.trim();if(!v)return;
-    const fd=new FormData();fd.append('content',v);fd.append('news_date',dateInp.value);
+    const titleInp=document.getElementById('newsNoteTitle');
+    const title=titleInp.value.trim();
+    if(!title){showToast('請輸入標題');titleInp.focus();return;}
+    const v=inp.value.trim();
+    const fd=new FormData();fd.append('content',v);fd.append('news_date',dateInp.value);fd.append('title',title);
     await fetch('/api/watchlist/NEWS/notes?user=shared',{method:'POST',body:fd});
-    inp.value='';loadNewsNotes();
+    inp.value='';titleInp.value='';loadNewsNotes();
 }
 async function uploadNewsNote(files){
     if(!files||!files.length)return;

@@ -10,8 +10,14 @@ def _conn():
 
 
 def init_db():
-    """Tables are pre-created in PostgreSQL. This is a no-op now."""
-    pass
+    """Ensure schema is up-to-date (add missing columns)."""
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE watchlist_notes ADD COLUMN IF NOT EXISTS title TEXT DEFAULT NULL")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # --- Watchlist ---
@@ -148,19 +154,19 @@ def get_notes(stock_code, user_id="default"):
     conn = _conn()
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("SELECT id, stock_code, content, image_path, user_id, created_at, news_date, (image_data IS NOT NULL) AS has_image FROM watchlist_notes WHERE stock_code = %s AND user_id = %s ORDER BY news_date DESC NULLS LAST, created_at DESC", (stock_code, user_id))
+        cur.execute("SELECT id, stock_code, content, image_path, user_id, created_at, news_date, title, (image_data IS NOT NULL) AS has_image FROM watchlist_notes WHERE stock_code = %s AND user_id = %s ORDER BY news_date DESC NULLS LAST, created_at DESC", (stock_code, user_id))
         return [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
 
 
-def add_note(stock_code, content="", image_path="", user_id="default", image_data=None, news_date=None, image_filename=""):
+def add_note(stock_code, content="", image_path="", user_id="default", image_data=None, news_date=None, image_filename="", title=""):
     conn = _conn()
     try:
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO watchlist_notes (stock_code, content, image_path, user_id, image_data, news_date, image_filename) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
-            (stock_code, content, image_path, user_id, psycopg2.Binary(image_data) if image_data else None, news_date, image_filename or None))
+            "INSERT INTO watchlist_notes (stock_code, content, image_path, user_id, image_data, news_date, image_filename, title) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (stock_code, content, image_path, user_id, psycopg2.Binary(image_data) if image_data else None, news_date, image_filename or None, title or None))
         note_id = cur.fetchone()[0]
         conn.commit()
         return note_id
