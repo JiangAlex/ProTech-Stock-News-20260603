@@ -1294,28 +1294,43 @@ async function loadNewsNotes(){
     const showDates=sortedDates.slice(0,5);
     const moreDates=sortedDates.slice(5);
 
-    function renderNoteItem(n){
-        const title=n.title||'(無標題)';
+    function renderNoteContent(n){
         const safeContent=(n.content||'').replace(/</g,'&lt;');
-        const safeTitle=title.replace(/</g,'&lt;');
-        return `<div data-note="${(n.content||'').replace(/"/g,'')}" style="margin-bottom:2px;margin-left:12px;">
+        return `<div data-note="${(n.content||'').replace(/"/g,'')}" style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:4px 8px;">
+            <div style="flex:1;font-size:11px;color:#ccc;">
+                ${safeContent?`<span style="white-space:pre-wrap;">${safeContent}</span>`:''}
+                ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:200px;max-height:120px;border-radius:4px;display:block;margin-top:4px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:''}
+            </div>
+            <span onclick="editNewsNote(${n.id})" style="color:#4fc3f7;cursor:pointer;font-size:11px;" title="編輯">✎</span>
+            <span onclick="delNewsNote(${n.id})" style="color:#ef5350;cursor:pointer;font-size:11px;">✕</span>
+        </div>`;
+    }
+
+    function renderTitleGroup(title, notesInTitle){
+        const safeTitle=(title||'(無標題)').replace(/</g,'&lt;');
+        return `<div style="margin-bottom:2px;margin-left:12px;">
             <div onclick="var bd=this.nextElementSibling;bd.style.display=bd.style.display==='none'?'':'none';this.querySelector('.nt-arrow').textContent=bd.style.display==='none'?'▸':'▾'" style="font-size:11px;color:#81d4fa;padding:4px 6px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;border-bottom:1px solid #2a2d38;">
                 <span class="nt-arrow" style="font-size:10px;width:10px;">▸</span>
-                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${safeTitle}</span>
-                <span onclick="event.stopPropagation();editNewsNote(${n.id})" style="color:#4fc3f7;cursor:pointer;font-size:11px;" title="編輯">✎</span>
-                <span onclick="event.stopPropagation();delNewsNote(${n.id})" style="color:#ef5350;cursor:pointer;font-size:11px;">✕</span>
+                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${safeTitle}${notesInTitle.length>1?' ('+notesInTitle.length+')':''}</span>
             </div>
-            <div style="display:none;padding:6px 8px 6px 20px;font-size:11px;color:#ccc;border-left:2px solid #3a3d48;margin-left:4px;">
-                ${safeContent?`<span style="white-space:pre-wrap;">${safeContent}</span>`:'<span style="color:#6b7a8d;">(無內容)</span>'}
-                ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:200px;max-height:120px;border-radius:4px;display:block;margin-top:4px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:''}
+            <div style="display:none;padding:4px 0 4px 16px;border-left:2px solid #3a3d48;margin-left:4px;">
+                ${notesInTitle.map(n=>renderNoteContent(n)).join('')}
             </div>
         </div>`;
     }
 
     function renderDateGroup(date){
+        // Sub-group by title within same date
+        const titleGroups={};
+        const titleOrder=[];
+        groups[date].forEach(n=>{
+            const t=n.title||'(無標題)';
+            if(!titleGroups[t]){titleGroups[t]=[];titleOrder.push(t);}
+            titleGroups[t].push(n);
+        });
         return `<div style="margin-bottom:8px;">
             <div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none';this.querySelector('.nn-arrow').textContent=this.nextElementSibling.style.display==='none'?'▸':'▾'" style="font-size:12px;font-weight:600;color:#ffb74d;padding:6px 4px;border-bottom:1px solid #3a3d48;cursor:pointer;user-select:none;"><span class="nn-arrow">▸</span> 📅 ${date} (${groups[date].length})</div>
-            <div style="display:none;">${groups[date].map(n=>renderNoteItem(n)).join('')}</div>
+            <div style="display:none;">${titleOrder.map(t=>renderTitleGroup(t,titleGroups[t])).join('')}</div>
         </div>`;
     }
 
