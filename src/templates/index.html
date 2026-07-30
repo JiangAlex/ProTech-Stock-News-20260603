@@ -316,6 +316,7 @@
 let chart = null, currentCode = '', lastData = [];
 let candleSeries = null;
 let watchGroups = {};
+let _scanResultCodes = [];
 let currentUser = (localStorage.getItem('protech_user') || 'default').toLowerCase();
 const MA_COLORS = ['#ffeb3b','#2196f3','#e91e63','#66bb6a','#ff9800'];
 let maLines = JSON.parse(localStorage.getItem('maLines')) || [{period:5,on:true},{period:20,on:true},{period:60,on:true}];
@@ -421,6 +422,10 @@ const US_NAMES={DJI:'道瓊工業指數',IXIC:'那斯達克綜合指數',SOX:'�
 function isUSIndex(code){return US_INDICES.includes(code);}
 
 async function loadStock(code){
+    // If loaded from non-scan source, clear scan navigation
+    if(_scanResultCodes.length && !_scanResultCodes.includes(code)){
+        _scanResultCodes=[];
+    }
     currentCode=code;
     document.getElementById('stockPanel').style.display='block';
     document.getElementById('stockCode').textContent=code;
@@ -528,6 +533,15 @@ function updateDayInfoFromCrosshair(param){
 function closeStock(){ document.getElementById('stockPanel').style.display='none'; currentCode=''; drawLines=[];drawTexts=[]; document.getElementById('btnClearLines').style.display='none'; document.getElementById('newsLink').href='https://tw.stock.yahoo.com/tw-market/'; document.getElementById('newsLink').textContent='開啟台股新聞 →'; }
 function navWatchStock(dir){
     if(!currentCode)return;
+    // Try scan results first
+    if(_scanResultCodes&&_scanResultCodes.length>1){
+        const i=_scanResultCodes.indexOf(currentCode);
+        if(i>=0){
+            const newIdx=i+dir;
+            if(newIdx>=0&&newIdx<_scanResultCodes.length){loadStock(_scanResultCodes[newIdx]);return;}
+        }
+    }
+    // Fallback to watchlist groups
     let grp=null,idx=-1;
     for(const[g,codes] of Object.entries(watchGroups)){
         const i=codes.indexOf(currentCode);
@@ -1577,6 +1591,7 @@ async function runMarketScan(){
             results.innerHTML='<div style="color:#6b7a8d;padding:8px;">無符合條件的股票</div>';
             return;
         }
+        _scanResultCodes=data.results.map(s=>s.stock_code);
         results.innerHTML=data.results.map(s=>{
             const chgColor=(s.change_pct||0)>=0?'#26a69a':'#ef5350';
             const rsiColor=s.rsi14>70?'#ef5350':s.rsi14<30?'#26a69a':'#e1e5ea';
