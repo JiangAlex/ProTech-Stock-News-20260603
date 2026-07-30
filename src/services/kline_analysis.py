@@ -552,6 +552,34 @@ def analyze_kline(stock_code: str, stock_name: str, kline_data: list[dict],
 
     prompt = _build_analysis_prompt(stock_code, stock_name, period, indicators, patterns, kline_data)
 
+    # Inject historical accuracy into prompt if available
+    try:
+        from src.core.database import get_analysis_accuracy
+        accuracy = get_analysis_accuracy(stock_code, user_id)
+        if accuracy["total"] > 0:
+            accuracy_note = f"\n\n【歷史分析紀錄】此股票過去 {accuracy['total']} 次 AI 分析中，{accuracy['correct']} 次判斷正確，{accuracy['incorrect']} 次判斷錯誤，正確率 {accuracy['accuracy']}%。請參考歷史表現調整信心度。"
+            prompt += accuracy_note
+    except Exception:
+        pass
+
+    # Inject user preferences into prompt
+    try:
+        from src.core.database import get_analysis_preferences
+        prefs = get_analysis_preferences(user_id)
+        pref_parts = []
+        if prefs.get("trading_style"):
+            pref_parts.append(f"操作風格：{prefs['trading_style']}")
+        if prefs.get("preferred_indicators"):
+            pref_parts.append(f"重視指標：{prefs['preferred_indicators']}")
+        if prefs.get("risk_tolerance"):
+            pref_parts.append(f"風險偏好：{prefs['risk_tolerance']}")
+        if prefs.get("custom_prompt"):
+            pref_parts.append(f"其他要求：{prefs['custom_prompt']}")
+        if pref_parts:
+            prompt += "\n\n【使用者分析偏好】\n" + "\n".join(pref_parts) + "\n請根據以上偏好調整分析方向和建議。"
+    except Exception:
+        pass
+
     # Build messages with history
     history = _analysis_history.get(user_id, [])
     messages = [{"role": "system", "content": "你是一位資深台股技術分析師，根據技術指標和K線型態提供專業分析。繁體中文回答。"}]

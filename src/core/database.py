@@ -15,6 +15,17 @@ def init_db():
     try:
         cur = conn.cursor()
         cur.execute("ALTER TABLE watchlist_notes ADD COLUMN IF NOT EXISTS title TEXT DEFAULT NULL")
+        cur.execute("ALTER TABLE watchlist_notes ADD COLUMN IF NOT EXISTS verification TEXT DEFAULT NULL")
+        cur.execute("ALTER TABLE watchlist_notes ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP DEFAULT NULL")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS analysis_preferences (
+                user_id TEXT PRIMARY KEY,
+                trading_style TEXT DEFAULT '',
+                preferred_indicators TEXT DEFAULT '',
+                risk_tolerance TEXT DEFAULT '',
+                custom_prompt TEXT DEFAULT ''
+            )
+        """)
         conn.commit()
     finally:
         conn.close()
@@ -206,6 +217,96 @@ def update_note_content(note_id, content, user_id="default", title=None):
             cur.execute("UPDATE watchlist_notes SET content = %s, title = %s WHERE id = %s AND user_id = %s", (content, title, note_id, user_id))
         else:
             cur.execute("UPDATE watchlist_notes SET content = %s WHERE id = %s AND user_id = %s", (content, note_id, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def verify_note(note_id, verification, user_id="default"):
+    """Mark a note as correct/incorrect. verification: 'correct' or 'incorrect' or None (clear)."""
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        if verification:
+            cur.execute(
+                "UPDATE watchlist_notes SET verification = %s, verified_at = NOW() WHERE id = %s AND user_id = %s",
+                (verification, note_id, user_id))
+        else:
+            cur.execute(
+                "UPDATE watchlist_notes SET verification = NULL, verified_at = NULL WHERE id = %s AND user_id = %s",
+                (note_id, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_analysis_accuracy(stock_code, user_id="default"):
+    """Get historical analysis accuracy for a stock (only AI analysis notes with verification)."""
+    conn = _conn()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT
+                COUNT(*) FILTER (WHERE verification IS NOT NULL) AS total_verified,
+                COUNT(*) FILTER (WHERE verification = 'correct') AS correct_count,
+                COUNT(*) FILTER (WHERE verification = 'incorrect') AS incorrect_count
+            FROM watchlist_notes
+            WHERE stock_code = %s AND user_id = %s
+              AND title LIKE '%%AI 技術分析%%'
+              AND verification IS NOT NULL
+        """, (stock_code, user_id))
+        r = cur.fetchone()
+        total = r["total_verified"] or 0
+        correct = r["correct_count"] or 0
+        if total == 0:
+            return {"total": 0, "correct": 0, "incorrect": 0, "accuracy": None}
+        return {
+            "total": total,
+            "correct": correct,
+            "incorrect": r["incorrect_count"] or 0,
+            "accuracy": round(correct / total * 100, 1)
+        }
+    finally:
+        conn.close()
+
+
+# --- Analysis Preferences ---
+
+def get_analysis_preferences(user_id="default"):
+    """Get user's AI analysis preferences."""
+    conn = _conn()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT * FROM analysis_preferences WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+        if row:
+            return dict(row)
+        return {
+            "user_id": user_id,
+            "trading_style": "",
+            "preferred_indicators": "",
+            "risk_tolerance": "",
+            "custom_prompt": "",
+        }
+    finally:
+        conn.close()
+
+
+def update_analysis_preferences(user_id="default", trading_style="", preferred_indicators="",
+                                risk_tolerance="", custom_prompt=""):
+    """Update user's AI analysis preferences."""
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO analysis_preferences (user_id, trading_style, preferred_indicators, risk_tolerance, custom_prompt)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET
+                trading_style=EXCLUDED.trading_style,
+                preferred_indicators=EXCLUDED.preferred_indicators,
+                risk_tolerance=EXCLUDED.risk_tolerance,
+                custom_prompt=EXCLUDED.custom_prompt
+        """, (user_id, trading_style, preferred_indicators, risk_tolerance, custom_prompt))
         conn.commit()
     finally:
         conn.close()

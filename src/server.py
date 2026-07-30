@@ -18,7 +18,8 @@ from src.core.database import (
     get_all_groups, get_notes, add_note, delete_note, get_note_image, update_cost, sell_stock,
     get_balance, update_balance, get_trades, get_all_trades, add_trade, delete_trade,
     get_alerts, add_alert, update_alert, delete_alert, get_alert_settings, update_alert_settings,
-    update_note_content,
+    update_note_content, verify_note, get_analysis_accuracy,
+    get_analysis_preferences, update_analysis_preferences,
 )
 from src.core.pg_client import (
     get_all_stocks, get_daily_kline, get_weekly_kline, get_monthly_kline,
@@ -336,13 +337,14 @@ def api_ai_analysis(code: str, period: str = Query("daily"), days: int = Query(1
     result = analyze_kline(code, stock_name, kline_data, period, user)
 
     # 4. Auto-save to notes
+    note_id = None
     if result.get("analysis") and not result.get("error"):
         try:
             period_name = {"daily": "日線", "weekly": "週線", "monthly": "月線"}.get(period, period)
             title = f"🤖 AI 技術分析 ({period_name})"
             content = f"【{code} {stock_name} {period_name}技術分析】\n\n{result['analysis']}"
             from datetime import date
-            add_note(
+            note_id = add_note(
                 stock_code=code,
                 content=content,
                 user_id=user,
@@ -352,6 +354,7 @@ def api_ai_analysis(code: str, period: str = Query("daily"), days: int = Query(1
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"Failed to save AI analysis note: {e}")
+    result["note_id"] = note_id
 
     # 5. Also inject into semantic_search conversation history for follow-up
     try:
@@ -367,6 +370,41 @@ def api_ai_analysis(code: str, period: str = Query("daily"), days: int = Query(1
         pass
 
     return result
+
+
+@app.put("/api/notes/{note_id}/verify")
+def api_verify_note(note_id: int, body: dict):
+    """Mark an AI analysis note as correct or incorrect."""
+    verification = body.get("verification")  # 'correct', 'incorrect', or None
+    user = body.get("user", "default")
+    verify_note(note_id, verification, user)
+    return {"ok": True}
+
+
+@app.get("/api/stock/{code}/analysis-accuracy")
+def api_analysis_accuracy(code: str, user: str = Query("default")):
+    """Get historical AI analysis accuracy for a stock."""
+    return get_analysis_accuracy(code, user)
+
+
+@app.get("/api/analysis-preferences")
+def api_get_analysis_preferences(user: str = Query("default")):
+    """Get user's AI analysis preferences."""
+    return get_analysis_preferences(user)
+
+
+@app.put("/api/analysis-preferences")
+def api_update_analysis_preferences(body: dict):
+    """Update user's AI analysis preferences."""
+    user = body.get("user", "default")
+    update_analysis_preferences(
+        user_id=user,
+        trading_style=body.get("trading_style", ""),
+        preferred_indicators=body.get("preferred_indicators", ""),
+        risk_tolerance=body.get("risk_tolerance", ""),
+        custom_prompt=body.get("custom_prompt", ""),
+    )
+    return {"ok": True}
 
 
 @app.get("/api/stock/{code}/revenue")

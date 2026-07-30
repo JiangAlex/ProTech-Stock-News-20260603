@@ -130,6 +130,35 @@
         <div id="alertOverview" style="flex:1;font-size:11px;color:#ccc;">載入中...</div>
         <button class="btn btn-s" onclick="loadAlertOverview()" style="font-size:10px;">重新整理</button>
     </div>
+    <div class="settings-row" style="align-items:flex-start;">
+        <strong>🤖 分析偏好：</strong>
+        <div style="flex:1;font-size:11px;">
+            <div style="display:grid;grid-template-columns:80px 1fr;gap:4px 8px;margin-bottom:4px;">
+                <label style="color:#8b9dc3;">操作風格</label>
+                <select id="prefStyle" style="padding:2px 6px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;">
+                    <option value="">未設定</option>
+                    <option value="順勢交易">順勢交易</option>
+                    <option value="逆勢抄底">逆勢抄底</option>
+                    <option value="波段操作">波段操作</option>
+                    <option value="短線當沖">短線當沖</option>
+                    <option value="長線存股">長線存股</option>
+                </select>
+                <label style="color:#8b9dc3;">重視指標</label>
+                <input id="prefIndicators" placeholder="例：量價、均線、MACD" style="padding:2px 6px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;">
+                <label style="color:#8b9dc3;">風險偏好</label>
+                <select id="prefRisk" style="padding:2px 6px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;">
+                    <option value="">未設定</option>
+                    <option value="保守（停損3-5%）">保守（停損3-5%）</option>
+                    <option value="穩健（停損5-8%）">穩健（停損5-8%）</option>
+                    <option value="積極（停損8-10%）">積極（停損8-10%）</option>
+                </select>
+                <label style="color:#8b9dc3;">自訂要求</label>
+                <input id="prefCustom" placeholder="其他分析要求..." style="padding:2px 6px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;">
+            </div>
+            <button class="btn btn-s" onclick="saveAnalysisPrefs()" style="font-size:10px;">💾 儲存偏好</button>
+            <span id="prefSaveStatus" style="font-size:10px;color:#6b7a8d;margin-left:8px;"></span>
+        </div>
+    </div>
 </div>
 
 <div class="container">
@@ -302,7 +331,30 @@ function switchUser(name){
 }
 
 // --- Settings ---
-function toggleSettings(){ const p=document.getElementById('settingsPanel'); p.style.display=p.style.display==='none'?'block':'none'; if(p.style.display==='block') loadAlertOverview(); }
+function toggleSettings(){ const p=document.getElementById('settingsPanel'); p.style.display=p.style.display==='none'?'block':'none'; if(p.style.display==='block'){loadAlertOverview();loadAnalysisPrefs();} }
+async function loadAnalysisPrefs(){
+    try{
+        const r=await fetch(`/api/analysis-preferences?user=${encodeURIComponent(currentUser)}`);
+        const p=await r.json();
+        document.getElementById('prefStyle').value=p.trading_style||'';
+        document.getElementById('prefIndicators').value=p.preferred_indicators||'';
+        document.getElementById('prefRisk').value=p.risk_tolerance||'';
+        document.getElementById('prefCustom').value=p.custom_prompt||'';
+    }catch(e){}
+}
+async function saveAnalysisPrefs(){
+    try{
+        await fetch('/api/analysis-preferences',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+            user:currentUser,
+            trading_style:document.getElementById('prefStyle').value,
+            preferred_indicators:document.getElementById('prefIndicators').value,
+            risk_tolerance:document.getElementById('prefRisk').value,
+            custom_prompt:document.getElementById('prefCustom').value,
+        })});
+        document.getElementById('prefSaveStatus').innerHTML='<span style="color:#26a69a;">✅ 已儲存</span>';
+        setTimeout(()=>{document.getElementById('prefSaveStatus').innerHTML='';},2000);
+    }catch(e){document.getElementById('prefSaveStatus').innerHTML='<span style="color:#ef5350;">儲存失敗</span>';}
+}
 
 function renderMASettings(){
     const c=document.getElementById('maSettings');
@@ -1164,23 +1216,80 @@ async function runAiAnalysis(){
         // Indicators summary
         if(data.indicators&&data.indicators.price){
             const p=data.indicators.price;
+            const ma=data.indicators.ma||{};
+            const macd=data.indicators.macd||{};
+            const rsi=data.indicators.rsi;
+            const boll=data.indicators.bollinger||{};
+            const vol=data.indicators.volume||{};
             const chgColor=p.change>=0?'#26a69a':'#ef5350';
-            html+=`<div style="margin-bottom:8px;padding:6px;background:#0f1117;border-radius:4px;">`;
-            html+=`<span style="color:${chgColor};font-weight:600;">${p.current} (${p.change>=0?'+':''}${p.change} / ${p.change_pct}%)</span>`;
-            html+=` <span style="color:#6b7a8d;font-size:10px;">${p.date}</span>`;
-            if(data.indicators.ma_arrangement)html+=` <span style="color:#8b9dc3;font-size:10px;margin-left:8px;">均線：${data.indicators.ma_arrangement}</span>`;
+
+            html+=`<div style="margin-bottom:8px;padding:8px;background:#0f1117;border-radius:4px;font-size:11px;">`;
+            // Price line
+            html+=`<div style="margin-bottom:6px;"><span style="color:${chgColor};font-weight:600;font-size:13px;">${p.current}</span> <span style="color:${chgColor};">${p.change>=0?'+':''}${p.change} (${p.change_pct}%)</span> <span style="color:#6b7a8d;font-size:10px;">${p.date}</span></div>`;
+
+            // MA table
+            html+=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px 12px;margin-bottom:6px;">`;
+            ['ma5','ma10','ma20','ma60'].forEach(k=>{
+                const m=ma[k]||{};
+                if(m.value){
+                    const dirColor=m.direction==='↑'?'#26a69a':m.direction==='↓'?'#ef5350':'#8b9dc3';
+                    html+=`<div><span style="color:#6b7a8d;">${k.toUpperCase()}:</span> <span style="color:#e1e5ea;">${m.value}</span> <span style="color:${dirColor};">${m.direction}</span> <span style="color:#6b7a8d;font-size:9px;">${m.distance}</span></div>`;
+                }
+            });
+            html+=`</div>`;
+            if(data.indicators.ma_arrangement)html+=`<div style="margin-bottom:6px;color:#8b9dc3;">均線排列：<span style="color:#e1e5ea;">${data.indicators.ma_arrangement}</span></div>`;
+
+            // MACD + RSI
+            html+=`<div style="display:flex;gap:16px;margin-bottom:6px;">`;
+            if(macd.dif!=null){
+                const histColor=macd.histogram>=0?'#26a69a':'#ef5350';
+                html+=`<div><span style="color:#6b7a8d;">MACD:</span> DIF=<span style="color:#e1e5ea;">${macd.dif}</span> MACD=<span style="color:#e1e5ea;">${macd.macd}</span> 柱=<span style="color:${histColor};">${macd.histogram}</span></div>`;
+            }
+            if(rsi!=null){
+                const rsiColor=rsi>70?'#ef5350':rsi<30?'#26a69a':'#e1e5ea';
+                html+=`<div><span style="color:#6b7a8d;">RSI(14):</span> <span style="color:${rsiColor};">${rsi}</span>${rsi>70?' ⚠️超買':rsi<30?' ⚠️超賣':''}</div>`;
+            }
+            html+=`</div>`;
+
+            // Bollinger
+            if(boll.upper){
+                const pricePos=((p.current-boll.lower)/(boll.upper-boll.lower)*100).toFixed(0);
+                html+=`<div style="margin-bottom:6px;"><span style="color:#6b7a8d;">布林帶:</span> 上=${boll.upper} 中=${boll.middle} 下=${boll.lower} <span style="color:#8b9dc3;">帶寬${boll.bandwidth}%</span> <span style="color:#ffeb3b;font-size:10px;">價位${pricePos}%</span></div>`;
+            }
+
+            // Volume
+            if(vol.current_volume){
+                const volColor=vol.volume_ratio>1.5?'#ffeb3b':vol.volume_ratio<0.5?'#6b7a8d':'#e1e5ea';
+                html+=`<div><span style="color:#6b7a8d;">量能:</span> 今量=<span style="color:${volColor};">${(vol.current_volume/1000).toFixed(0)}張</span> 5日均量=${(vol.avg_volume_5d/1000).toFixed(0)}張 量比=<span style="color:${volColor};">${vol.volume_ratio}</span> ${vol.trend}</div>`;
+            }
             html+=`</div>`;
         }
         // Patterns
         if(data.patterns&&data.patterns.length){
-            html+=`<div style="margin-bottom:8px;font-size:11px;color:#ffeb3b;">`;
-            html+=`📐 型態：${data.patterns.map(p=>`${p.name}(${p.signal})`).join('、')}`;
+            html+=`<div style="margin-bottom:8px;padding:6px;background:#1a1a0a;border:1px solid #ffeb3b33;border-radius:4px;font-size:11px;">`;
+            html+=`<div style="color:#ffeb3b;margin-bottom:4px;">📐 K線型態偵測</div>`;
+            data.patterns.forEach(p=>{
+                const sigColor=p.signal.includes('多')?'#26a69a':p.signal.includes('空')?'#ef5350':'#8b9dc3';
+                html+=`<div style="margin-bottom:2px;">• <span style="color:#e1e5ea;">${p.name}</span> <span style="color:${sigColor};font-weight:600;">[${p.signal}]</span> <span style="color:#6b7a8d;">${p.description}</span></div>`;
+            });
             html+=`</div>`;
+        }else{
+            html+=`<div style="margin-bottom:8px;font-size:11px;color:#6b7a8d;">📐 K線型態：無明顯型態</div>`;
         }
         // AI Analysis text
         if(data.analysis){
             html+=`<div style="border-top:1px solid #2a2d38;padding-top:8px;margin-top:4px;">`;
-            html+=data.analysis.replace(/</g,'&lt;').replace(/\n/g,'<br>');
+            html+=`<div style="font-size:11px;color:#4fc3f7;margin-bottom:4px;font-weight:600;">💡 AI 綜合分析</div>`;
+            html+=`<div style="font-size:12px;line-height:1.7;">${data.analysis.replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>`;
+            html+=`</div>`;
+        }
+        // Verification buttons
+        if(data.note_id){
+            html+=`<div style="border-top:1px solid #2a2d38;padding-top:8px;margin-top:8px;display:flex;align-items:center;gap:12px;">`;
+            html+=`<span style="font-size:11px;color:#6b7a8d;">結果驗證：</span>`;
+            html+=`<button onclick="verifyAnalysis(${data.note_id},'correct')" class="btn btn-s" style="font-size:11px;padding:3px 8px;background:#1a3a2a;border-color:#26a69a;">✅ 正確</button>`;
+            html+=`<button onclick="verifyAnalysis(${data.note_id},'incorrect')" class="btn btn-s" style="font-size:11px;padding:3px 8px;background:#3a1a1a;border-color:#ef5350;">❌ 錯誤</button>`;
+            html+=`<span id="verifyStatus" style="font-size:10px;color:#6b7a8d;"></span>`;
             html+=`</div>`;
         }
         content.innerHTML=html;
@@ -1188,6 +1297,19 @@ async function runAiAnalysis(){
         content.innerHTML=`<div style="color:#ef5350;">❌ 分析失敗：${e.message}</div>`;
     }finally{
         btn.disabled=false;btn.style.opacity='1';
+    }
+}
+async function verifyAnalysis(noteId, verification){
+    try{
+        await fetch(`/api/notes/${noteId}/verify`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({verification,user:currentUser})});
+        const el=document.getElementById('verifyStatus');
+        if(verification==='correct') el.innerHTML='<span style="color:#26a69a;">✅ 已標記正確</span>';
+        else el.innerHTML='<span style="color:#ef5350;">❌ 已標記錯誤</span>';
+        // Fetch and show accuracy
+        const acc=await fetch(`/api/stock/${currentCode}/analysis-accuracy?user=${encodeURIComponent(currentUser)}`).then(r=>r.json());
+        if(acc.total>0) el.innerHTML+=` <span style="color:#8b9dc3;margin-left:8px;">歷史正確率：${acc.accuracy}% (${acc.correct}/${acc.total})</span>`;
+    }catch(e){
+        document.getElementById('verifyStatus').innerHTML='<span style="color:#ef5350;">標記失敗</span>';
     }
 }
 
