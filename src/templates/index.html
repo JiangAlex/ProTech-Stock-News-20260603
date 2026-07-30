@@ -156,11 +156,20 @@
                 <button class="btn btn-s" onclick="screenshotToNote()">📷 截圖</button>
                 <button class="btn btn-s" onclick="toggleFloatNotes()">📝 備註</button>
                 <button class="btn btn-s" onclick="openBacktest()">📊 回測</button>
+                <button class="btn btn-s" onclick="runAiAnalysis()" id="btnAiAnalysis" style="background:#1a3a4a;border-color:#4fc3f7;">🤖 AI分析</button>
                 <button class="btn btn-s" onclick="closeStock()">✕</button>
             </div>
         </div>
         <div id="dayInfoBar" style="padding:4px 14px;font-size:12px;color:#e1e5ea;display:flex;gap:16px;background:#14161e;border-bottom:1px solid #2a2d38;"></div>
         <div class="chart-container" id="chartContainer"></div>
+        <!-- AI Analysis Result -->
+        <div id="aiAnalysisPanel" style="display:none;margin:8px 14px;background:#14161e;border:1px solid #4fc3f7;border-radius:6px;padding:12px;max-height:400px;overflow-y:auto;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <span style="font-size:12px;font-weight:600;color:#4fc3f7;">🤖 AI 技術分析</span>
+                <button onclick="document.getElementById('aiAnalysisPanel').style.display='none'" style="background:none;border:none;color:#6b7a8d;cursor:pointer;font-size:14px;">✕</button>
+            </div>
+            <div id="aiAnalysisContent" style="font-size:12px;color:#e1e5ea;white-space:pre-wrap;line-height:1.7;"></div>
+        </div>
         <!-- Fundamental charts -->
         <div class="fund-charts" id="fundCharts">
             <div class="fund-chart"><h3>年度營收走勢</h3><div id="revenueChart" style="height:170px"></div></div>
@@ -1081,6 +1090,55 @@ async function toggleAlertEnabled(id,enabled,code){
     document.addEventListener('mousemove',e=>{if(!dragging)return;win.style.left=(e.clientX-ox)+'px';win.style.top=(e.clientY-oy)+'px';win.style.transform='none';});
     document.addEventListener('mouseup',()=>{dragging=false;});
 })();
+
+// --- AI Technical Analysis ---
+async function runAiAnalysis(){
+    if(!currentCode)return;
+    const panel=document.getElementById('aiAnalysisPanel');
+    const content=document.getElementById('aiAnalysisContent');
+    panel.style.display='block';
+    content.innerHTML='<div style="color:#4fc3f7;">🤖 AI 分析中（約 10-30 秒）...</div>';
+    const btn=document.getElementById('btnAiAnalysis');
+    btn.disabled=true;btn.style.opacity='0.5';
+    try{
+        const period=document.getElementById('selPeriod').value;
+        const days=document.getElementById('numDays').value;
+        const r=await fetch(`/api/stock/${currentCode}/ai-analysis?period=${period}&days=${days}&user=shared`,{method:'POST'});
+        const data=await r.json();
+        if(data.error){
+            content.innerHTML=`<div style="color:#ef5350;">❌ ${data.error}</div>`;
+            return;
+        }
+        let html='';
+        // Indicators summary
+        if(data.indicators&&data.indicators.price){
+            const p=data.indicators.price;
+            const chgColor=p.change>=0?'#26a69a':'#ef5350';
+            html+=`<div style="margin-bottom:8px;padding:6px;background:#0f1117;border-radius:4px;">`;
+            html+=`<span style="color:${chgColor};font-weight:600;">${p.current} (${p.change>=0?'+':''}${p.change} / ${p.change_pct}%)</span>`;
+            html+=` <span style="color:#6b7a8d;font-size:10px;">${p.date}</span>`;
+            if(data.indicators.ma_arrangement)html+=` <span style="color:#8b9dc3;font-size:10px;margin-left:8px;">均線：${data.indicators.ma_arrangement}</span>`;
+            html+=`</div>`;
+        }
+        // Patterns
+        if(data.patterns&&data.patterns.length){
+            html+=`<div style="margin-bottom:8px;font-size:11px;color:#ffeb3b;">`;
+            html+=`📐 型態：${data.patterns.map(p=>`${p.name}(${p.signal})`).join('、')}`;
+            html+=`</div>`;
+        }
+        // AI Analysis text
+        if(data.analysis){
+            html+=`<div style="border-top:1px solid #2a2d38;padding-top:8px;margin-top:4px;">`;
+            html+=data.analysis.replace(/</g,'&lt;').replace(/\n/g,'<br>');
+            html+=`</div>`;
+        }
+        content.innerHTML=html;
+    }catch(e){
+        content.innerHTML=`<div style="color:#ef5350;">❌ 分析失敗：${e.message}</div>`;
+    }finally{
+        btn.disabled=false;btn.style.opacity='1';
+    }
+}
 
 // --- Backtest Panel ---
 let btBuyConditions=[], btSellConditions=[];

@@ -24,6 +24,7 @@ from src.core.pg_client import (
     get_all_stocks, get_daily_kline, get_weekly_kline, get_monthly_kline,
 )
 from src.services.yahoo_service import fetch_hot_stocks, fetch_revenue, fetch_dividend, fetch_rank
+from src.services.kline_analysis import analyze_kline, get_analysis_history
 
 app = FastAPI(title="ProTech Stock Dashboard", version="2.0.0")
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -304,6 +305,68 @@ def api_kline(code: str, period: str = Query("daily"), days: int = Query(120, le
     elif period == "monthly":
         return get_monthly_kline(code, days)
     return get_daily_kline(code, days)
+
+
+@app.post("/api/stock/{code}/ai-analysis")
+def api_ai_analysis(code: str, period: str = Query("daily"), days: int = Query(120, le=500),
+                    user: str = Query("default")):
+    """AI technical analysis for a stock's K-line data."""
+    # 1. Get K-line data
+    if period == "weekly":
+        kline_data = get_weekly_kline(code, days)
+    elif period == "monthly":
+        kline_data = get_monthly_kline(code, days)
+    else:
+        kline_data = get_daily_kline(code, days)
+
+    if not kline_data or len(kline_data) < 5:
+        return {"error": "K線資料不足，無法分析"}
+
+    # 2. Get stock name
+    stock_name = ""
+    if not hasattr(api_ai_analysis, '_stock_map'):
+        try:
+            stocks = get_all_stocks()
+            api_ai_analysis._stock_map = {s["code"]: s["name"] for s in stocks}
+        except Exception:
+            api_ai_analysis._stock_map = {}
+    stock_name = api_ai_analysis._stock_map.get(code, code)
+
+    # 3. Run analysis
+    result = analyze_kline(code, stock_name, kline_data, period, user)
+
+    # 4. Auto-save to notes
+    if result.get("analysis") and not result.get("error"):
+        try:
+            period_name = {"daily": "日線", "weekly": "週線", "monthly": "月線"}.get(period, period)
+            title = f"🤖 AI 技術分析 ({period_name})"
+            content = f"【{code} {stock_name} {period_name}技術分析】\n\n{result['analysis']}"
+            from datetime import date
+            add_note(
+                stock_code=code,
+                content=content,
+                user_id=user,
+                title=title,
+                news_date=date.today().isoformat(),
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to save AI analysis note: {e}")
+
+    # 5. Also inject into semantic_search conversation history for follow-up
+    try:
+        from src.services.semantic_search import _conversation_history
+        if user not in _conversation_history:
+            _conversation_history[user] = []
+        summary = f"[{code} {stock_name} 技術分析] {result.get('analysis', '')[:800]}"
+        _conversation_history[user].append({"role": "assistant", "content": summary})
+        # Trim history
+        while len(_conversation_history[user]) > 10:
+            _conversation_history[user].pop(0)
+    except Exception:
+        pass
+
+    return result
 
 
 @app.get("/api/stock/{code}/revenue")
