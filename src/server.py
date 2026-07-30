@@ -389,8 +389,9 @@ def api_get_note_image(note_id: int):
 def api_update_note_content(note_id: int, body: dict):
     user = body.get("user", "default")
     content = body.get("content", "")
+    title = body.get("title", None)
     from src.core.database import update_note_content
-    update_note_content(note_id, content, user)
+    update_note_content(note_id, content, user, title)
     return {"ok": True}
 
 
