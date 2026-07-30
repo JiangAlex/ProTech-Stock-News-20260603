@@ -968,21 +968,43 @@ async function renderFloatNotes(code){
             <label class="btn btn-s" style="font-size:10px;padding:2px 6px;cursor:pointer;">📎<input type="file" accept="image/*" style="display:none;" onchange="uploadNote('${code}',this.files[0])"></label>
             <button class="btn btn-s" onclick="submitNote('${code}')" style="font-size:10px;padding:2px 6px;">送出</button>
         </div>
-        ${notes.map(n=>`<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:3px 0;border-top:1px solid #2a2d38;">
-            <div style="flex:1;font-size:11px;color:#ccc;">
-                ${n.title?`<div style="font-size:10px;color:#4fc3f7;margin-bottom:2px;">${n.title}</div>`:''}
-                ${n.content?`<span style="white-space:pre-wrap;">${n.content.replace(/</g,'&lt;').slice(0,200)}${(n.content.length>200)?'...':''}</span>`:''}
-                ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:120px;max-height:80px;border-radius:4px;display:block;margin-top:2px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:n.image_path?`<img src="${n.image_path}" style="max-width:120px;max-height:80px;border-radius:4px;display:block;margin-top:2px;cursor:pointer;" onclick="window.open('${n.image_path}','_blank')">`:''}
-                <div style="font-size:9px;color:#6b7a8d;margin-top:1px;">${n.created_at}</div>
-            </div>
-            <span onclick="editFloatNote(${n.id},'${code}')" style="color:#4fc3f7;cursor:pointer;font-size:11px;" title="編輯">✏</span>
-            <span onclick="delNote(${n.id},'${code}')" style="color:#ef5350;cursor:pointer;font-size:11px;" title="刪除">✕</span>
-        </div>`).join('')}
+        ${notes.map(n=>{
+            const isAi=n.title&&n.title.includes('AI 技術分析');
+            if(isAi){
+                return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;padding:3px 0;border-top:1px solid #2a2d38;">
+                    <div style="flex:1;cursor:pointer;" onclick="showAiNoteInPanel(${n.id},'${code}')">
+                        <div style="font-size:11px;color:#4fc3f7;">${n.title}</div>
+                        <div style="font-size:9px;color:#6b7a8d;">${n.news_date||''} ${n.created_at||''}</div>
+                    </div>
+                    <span onclick="editFloatNote(${n.id},'${code}')" style="color:#4fc3f7;cursor:pointer;font-size:11px;" title="編輯">✏</span>
+                    <span onclick="delNote(${n.id},'${code}')" style="color:#ef5350;cursor:pointer;font-size:11px;" title="刪除">✕</span>
+                </div>`;
+            }
+            return `<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;padding:3px 0;border-top:1px solid #2a2d38;">
+                <div style="flex:1;font-size:11px;color:#ccc;">
+                    ${n.title?`<div style="font-size:10px;color:#4fc3f7;margin-bottom:2px;">${n.title}</div>`:''}
+                    ${n.content?`<span style="white-space:pre-wrap;">${n.content.replace(/</g,'&lt;').slice(0,200)}${(n.content.length>200)?'...':''}</span>`:''}
+                    ${n.has_image?`<img src="/api/watchlist/notes/${n.id}/image" style="max-width:120px;max-height:80px;border-radius:4px;display:block;margin-top:2px;cursor:pointer;" onclick="window.open('/api/watchlist/notes/${n.id}/image','_blank')">`:n.image_path?`<img src="${n.image_path}" style="max-width:120px;max-height:80px;border-radius:4px;display:block;margin-top:2px;cursor:pointer;" onclick="window.open('${n.image_path}','_blank')">`:''}
+                    <div style="font-size:9px;color:#6b7a8d;margin-top:1px;">${n.created_at}</div>
+                </div>
+                <span onclick="editFloatNote(${n.id},'${code}')" style="color:#4fc3f7;cursor:pointer;font-size:11px;" title="編輯">✏</span>
+                <span onclick="delNote(${n.id},'${code}')" style="color:#ef5350;cursor:pointer;font-size:11px;" title="刪除">✕</span>
+            </div>`;
+        }).join('')}
     </div>`;
 }
 async function submitNote(code){const inp=document.getElementById('noteInput-'+code);const v=inp.value.trim();if(!v)return;const fd=new FormData();fd.append('content',v);await fetch(U(`/api/watchlist/${code}/notes`),{method:'POST',body:fd});renderFloatNotes(code);}
 async function uploadNote(code,file){if(!file)return;const fd=new FormData();fd.append('content','');fd.append('image',file);await fetch(U(`/api/watchlist/${code}/notes`),{method:'POST',body:fd});renderFloatNotes(code);}
 async function delNote(id,code){await fetch(U(`/api/watchlist/notes/${id}`),{method:'DELETE'});renderFloatNotes(code);}
+async function showAiNoteInPanel(id,code){
+    const notes=await fetch(U(`/api/watchlist/${code}/notes`)).then(r=>r.json());
+    const note=notes.find(n=>n.id===id);
+    if(!note)return;
+    const panel=document.getElementById('aiAnalysisPanel');
+    const content=document.getElementById('aiAnalysisContent');
+    panel.style.display='block';
+    content.innerHTML=note.content.replace(/</g,'&lt;').replace(/\n/g,'<br>');
+}
 async function editFloatNote(id,code){
     const notes=await fetch(U(`/api/watchlist/${code}/notes`)).then(r=>r.json());
     const note=notes.find(n=>n.id===id);
