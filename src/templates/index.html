@@ -765,18 +765,45 @@ function initDrawing(){
 // --- Screenshot ---
 async function screenshotToNote(){
     if(!currentCode)return;
-    const el=document.getElementById('chartContainer');
-    const canvas=await html2canvas(el,{backgroundColor:'#1a1d28'});
-    canvas.toBlob(async blob=>{
-        const today=new Date().toISOString().slice(0,10);
-        const fd=new FormData();
-        fd.append('content',`K線截圖 ${today}`);
-        fd.append('image',blob,`${currentCode}_${today}.png`);
-        await fetch(U(`/api/watchlist/${currentCode}/notes`),{method:'POST',body:fd});
-        const w=document.getElementById('floatNotes');
-        if(!floatNotesOpen){w.style.display='flex';floatNotesOpen=true;}
-        renderFloatNotes(currentCode);
-    },'image/png');
+    const btn=event&&event.target;
+    if(btn){btn.disabled=true;btn.textContent='📷 擷取中...';}
+    const prog=document.createElement('div');
+    prog.style.cssText='position:fixed;bottom:20px;right:20px;background:#1a1d28;border:1px solid #4fc3f7;color:#e1e5ea;padding:10px 16px;border-radius:6px;font-size:12px;z-index:99999;box-shadow:0 4px 16px rgba(0,0,0,0.5);display:flex;align-items:center;gap:8px;';
+    prog.innerHTML='<span class="screenshot-spinner"></span><span id="ssMsg">正在擷取畫面...</span>';
+    document.body.appendChild(prog);
+    const style=document.createElement('style');
+    style.textContent='@keyframes ss-spin{to{transform:rotate(360deg)}}.screenshot-spinner{width:14px;height:14px;border:2px solid #4fc3f7;border-top-color:transparent;border-radius:50%;animation:ss-spin .6s linear infinite;}';
+    document.head.appendChild(style);
+    const t0=performance.now();
+    try{
+        const el=document.getElementById('chartContainer');
+        const canvas=await html2canvas(el,{backgroundColor:'#1a1d28',scale:1});
+        document.getElementById('ssMsg').textContent='正在上傳...';
+        await new Promise(resolve=>{
+            canvas.toBlob(async blob=>{
+                const today=new Date().toISOString().slice(0,10);
+                const fd=new FormData();
+                fd.append('content',`K線截圖 ${today}`);
+                fd.append('image',blob,`${currentCode}_${today}.png`);
+                await fetch(U(`/api/watchlist/${currentCode}/notes`),{method:'POST',body:fd});
+                const w=document.getElementById('floatNotes');
+                if(!floatNotesOpen){w.style.display='flex';floatNotesOpen=true;}
+                renderFloatNotes(currentCode);
+                resolve();
+            },'image/png');
+        });
+        const elapsed=((performance.now()-t0)/1000).toFixed(1);
+        prog.style.borderColor='#66bb6a';
+        prog.innerHTML=`<span style="color:#66bb6a;">✓</span> 截圖完成（${elapsed}s）`;
+        setTimeout(()=>prog.remove(),2500);
+    }catch(err){
+        prog.style.borderColor='#ef5350';
+        prog.innerHTML=`<span style="color:#ef5350;">✗</span> 截圖失敗：${err.message}`;
+        setTimeout(()=>prog.remove(),4000);
+    }finally{
+        style.remove();
+        if(btn){btn.disabled=false;btn.textContent='📷 截圖';}
+    }
 }
 
 // --- Fundamentals ---
