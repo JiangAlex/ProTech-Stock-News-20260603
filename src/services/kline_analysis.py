@@ -467,6 +467,29 @@ def _build_analysis_prompt(stock_code: str, stock_name: str, period: str,
     except Exception:
         framework_text = default_framework
 
+    # Strip comments: everything after # on each line is a comment (not sent to AI)
+    framework_lines = []
+    for line in framework_text.split('\n'):
+        # Find # that is not inside {} brackets
+        in_bracket = 0
+        comment_pos = -1
+        for i, ch in enumerate(line):
+            if ch == '{':
+                in_bracket += 1
+            elif ch == '}':
+                in_bracket -= 1
+            elif ch == '#' and in_bracket == 0:
+                comment_pos = i
+                break
+        if comment_pos >= 0:
+            framework_lines.append(line[:comment_pos].rstrip())
+        else:
+            framework_lines.append(line)
+    framework_for_ai = '\n'.join(framework_lines)
+
+    # Use stripped version for indicator detection
+    framework_check = framework_for_ai.lower()
+
     indicator_text = f"""【價格】
 - 最新收盤：{price.get('current')}  漲跌：{price.get('change')}（{price.get('change_pct')}%）
 - 日期：{price.get('date')}
@@ -480,13 +503,13 @@ def _build_analysis_prompt(stock_code: str, stock_name: str, period: str,
 【MACD】
 - DIF: {macd.get('dif')}  MACD: {macd.get('macd')}  柱狀: {macd.get('histogram')}"""
 
-    # Conditionally include RSI and Bollinger based on framework content
-    if 'RSI' in framework_text or 'rsi' in framework_text.lower():
+    # Conditionally include RSI and Bollinger based on framework content (comments stripped)
+    if 'rsi' in framework_check:
         indicator_text += f"""
 
 【RSI(14)】{rsi}"""
 
-    if '布林' in framework_text or 'bollinger' in framework_text.lower():
+    if '布林' in framework_check or 'bollinger' in framework_check:
         indicator_text += f"""
 
 【布林帶(20,2)】
@@ -523,7 +546,7 @@ def _build_analysis_prompt(stock_code: str, stock_name: str, period: str,
 根據以下 {stock_code} {stock_name} 的{period_name}技術指標、K線型態、近期走勢，產出專業的技術分析報告。
 
 # 分析框架
-{framework_text}
+{framework_for_ai}
 
 # 格式要求
 - 繁體中文，條列式

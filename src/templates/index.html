@@ -156,7 +156,7 @@
                 <input id="prefCustom" placeholder="其他分析要求..." style="padding:2px 6px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;">
             </div>
             <details style="margin:6px 0;" id="frameworkDetails">
-                <summary style="cursor:pointer;color:#4fc3f7;font-size:11px;">📝 自訂分析框架 <button type="button" onclick="event.stopPropagation();openFrameworkEditor()" class="btn btn-s" style="font-size:10px;margin-left:8px;background:#1a3a4a;border-color:#4fc3f7;">✎ 編輯</button></summary>
+                <summary style="cursor:pointer;color:#4fc3f7;font-size:11px;">📝 自訂分析框架 <button type="button" onclick="event.preventDefault();event.stopPropagation();openFrameworkEditor()" class="btn btn-s" style="font-size:10px;margin-left:8px;background:#1a3a4a;border-color:#4fc3f7;">✎ 編輯</button></summary>
                 <div style="margin-top:4px;">
                     <textarea id="prefFramework" rows="7" style="width:100%;padding:4px 6px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;font-family:monospace;resize:vertical;"></textarea>
                     <div style="color:#6b7a8d;font-size:10px;margin-top:2px;">留空則使用預設框架。可自訂段落結構，AI 將依照此框架產生分析報告。</div>
