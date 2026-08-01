@@ -70,6 +70,7 @@ def startup():
     asyncio.get_event_loop().create_task(_daily_rank_job())
     asyncio.get_event_loop().create_task(_daily_alert_job())
     asyncio.get_event_loop().create_task(_daily_us_index_job())
+    asyncio.get_event_loop().create_task(_daily_twii_job())
     asyncio.get_event_loop().create_task(_realtime_alert_job())
     asyncio.get_event_loop().create_task(_weekly_news_digest_job())
     asyncio.get_event_loop().create_task(_daily_market_scan_job())
@@ -148,7 +149,7 @@ def api_get_triggered(user: str = Query("default")):
 
 
 async def _daily_us_index_job():
-    """Fetch US index data daily at 07:00 (after US market close)."""
+    """Fetch US index (DJI/IXIC/SOX) daily at 07:00 (after US market close)."""
     import asyncio
     from datetime import datetime, timedelta
     while True:
@@ -158,11 +159,30 @@ async def _daily_us_index_job():
             target += timedelta(days=1)
         await asyncio.sleep((target - now).total_seconds())
         try:
-            from src.services.us_index_service import fetch_all_us_indices
-            fetch_all_us_indices("5d")
+            from src.services.us_index_service import fetch_and_store_us_index
+            for sym in ("DJI", "IXIC", "SOX"):
+                fetch_and_store_us_index(sym, "5d")
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"US index job error: {e}")
+
+
+async def _daily_twii_job():
+    """Fetch TWII (台灣加權指數) daily at 18:00 (after TSE market close)."""
+    import asyncio
+    from datetime import datetime, timedelta
+    while True:
+        now = datetime.now()
+        target = now.replace(hour=18, minute=0, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+        await asyncio.sleep((target - now).total_seconds())
+        try:
+            from src.services.us_index_service import fetch_and_store_us_index
+            fetch_and_store_us_index("TWII", "5d")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"TWII index job error: {e}")
 
 
 async def _daily_market_scan_job():
@@ -429,6 +449,7 @@ def api_update_analysis_preferences(body: dict):
         preferred_indicators=body.get("preferred_indicators", ""),
         risk_tolerance=body.get("risk_tolerance", ""),
         custom_prompt=body.get("custom_prompt", ""),
+        analysis_framework=body.get("analysis_framework", ""),
     )
     return {"ok": True}
 

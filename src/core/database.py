@@ -23,9 +23,11 @@ def init_db():
                 trading_style TEXT DEFAULT '',
                 preferred_indicators TEXT DEFAULT '',
                 risk_tolerance TEXT DEFAULT '',
-                custom_prompt TEXT DEFAULT ''
+                custom_prompt TEXT DEFAULT '',
+                analysis_framework TEXT DEFAULT ''
             )
         """)
+        cur.execute("ALTER TABLE analysis_preferences ADD COLUMN IF NOT EXISTS analysis_framework TEXT DEFAULT ''")
         conn.commit()
     finally:
         conn.close()
@@ -287,26 +289,28 @@ def get_analysis_preferences(user_id="default"):
             "preferred_indicators": "",
             "risk_tolerance": "",
             "custom_prompt": "",
+            "analysis_framework": "",
         }
     finally:
         conn.close()
 
 
 def update_analysis_preferences(user_id="default", trading_style="", preferred_indicators="",
-                                risk_tolerance="", custom_prompt=""):
+                                risk_tolerance="", custom_prompt="", analysis_framework=""):
     """Update user's AI analysis preferences."""
     conn = _conn()
     try:
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO analysis_preferences (user_id, trading_style, preferred_indicators, risk_tolerance, custom_prompt)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO analysis_preferences (user_id, trading_style, preferred_indicators, risk_tolerance, custom_prompt, analysis_framework)
+            VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT (user_id) DO UPDATE SET
                 trading_style=EXCLUDED.trading_style,
                 preferred_indicators=EXCLUDED.preferred_indicators,
                 risk_tolerance=EXCLUDED.risk_tolerance,
-                custom_prompt=EXCLUDED.custom_prompt
-        """, (user_id, trading_style, preferred_indicators, risk_tolerance, custom_prompt))
+                custom_prompt=EXCLUDED.custom_prompt,
+                analysis_framework=EXCLUDED.analysis_framework
+        """, (user_id, trading_style, preferred_indicators, risk_tolerance, custom_prompt, analysis_framework))
         conn.commit()
     finally:
         conn.close()

@@ -489,6 +489,25 @@ def _build_analysis_prompt(stock_code: str, stock_name: str, period: str,
 
     period_name = {"daily": "日線", "weekly": "週線", "monthly": "月線"}.get(period, period)
 
+    # Default analysis framework
+    default_framework = """1. **趨勢判斷**：目前處於什麼趨勢？（上升/下降/盤整）依據是什麼？
+2. **關鍵價位**：支撐位、壓力位各在哪裡？
+3. **指標解讀**：MACD/RSI/布林帶/量能各代表什麼意義？
+4. **型態分析**：偵測到的K線型態代表什麼？
+5. **綜合判斷**：短線（1-5日）和中線（5-20日）的操作建議方向"""
+
+    # Load user-defined framework if available
+    try:
+        from src.core.database import get_analysis_preferences
+        prefs = get_analysis_preferences("default")
+        custom_framework = prefs.get("analysis_framework", "").strip()
+        if custom_framework:
+            framework_text = custom_framework
+        else:
+            framework_text = default_framework
+    except Exception:
+        framework_text = default_framework
+
     prompt = f"""# 角色
 你是一位擁有 20 年經驗的「資深技術分析師」，專精台股技術面分析。
 
@@ -496,11 +515,7 @@ def _build_analysis_prompt(stock_code: str, stock_name: str, period: str,
 根據以下 {stock_code} {stock_name} 的{period_name}技術指標、K線型態、近期走勢，產出專業的技術分析報告。
 
 # 分析框架
-1. **趨勢判斷**：目前處於什麼趨勢？（上升/下降/盤整）依據是什麼？
-2. **關鍵價位**：支撐位、壓力位各在哪裡？
-3. **指標解讀**：MACD/RSI/布林帶/量能各代表什麼意義？
-4. **型態分析**：偵測到的K線型態代表什麼？
-5. **綜合判斷**：短線（1-5日）和中線（5-20日）的操作建議方向
+{framework_text}
 
 # 格式要求
 - 繁體中文，條列式
