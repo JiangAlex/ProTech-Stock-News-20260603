@@ -437,7 +437,7 @@ MAX_ANALYSIS_HISTORY = 5
 
 def _build_analysis_prompt(stock_code: str, stock_name: str, period: str,
                            indicators: dict, patterns: list[dict],
-                           recent_kline: list[dict]) -> str:
+                           recent_kline: list[dict], user_id: str = "default") -> str:
     """Build the analysis prompt for LLM."""
 
     # Format indicators
@@ -458,7 +458,7 @@ def _build_analysis_prompt(stock_code: str, stock_name: str, period: str,
 
     try:
         from src.core.database import get_analysis_preferences
-        prefs = get_analysis_preferences("default")
+        prefs = get_analysis_preferences(user_id)
         custom_framework = prefs.get("analysis_framework", "").strip()
         if custom_framework:
             framework_text = custom_framework
@@ -596,7 +596,7 @@ def analyze_kline(stock_code: str, stock_name: str, kline_data: list[dict],
             "error": None
         }
 
-    prompt = _build_analysis_prompt(stock_code, stock_name, period, indicators, patterns, kline_data)
+    prompt = _build_analysis_prompt(stock_code, stock_name, period, indicators, patterns, kline_data, user_id)
 
     # Inject historical accuracy into prompt if available
     try:
