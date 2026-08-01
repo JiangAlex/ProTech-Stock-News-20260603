@@ -189,6 +189,12 @@ def ask_news(query: str, user_id: str = "default") -> dict:
             market_answer = _answer_from_indicators(query, user_id)
             if market_answer:
                 return market_answer
+
+        # Fallback: use LLM general knowledge to answer
+        general_answer = _answer_general(query, user_id)
+        if general_answer:
+            return general_answer
+
         return {"answer": "❌ 找不到相關新聞備註。", "keywords": keywords, "sources": []}
 
     # Step 2: Build context from search results (top 15)
@@ -374,3 +380,52 @@ def _answer_from_indicators(query: str, user_id: str = "default") -> dict | None
         return None
     finally:
         conn.close()
+
+
+def _answer_general(query: str, user_id: str = "default") -> dict | None:
+    """Fallback: use LLM general knowledge to answer stock/finance related questions."""
+    api_key = os.getenv("MINIMAX_API_KEY", "")
+    if not api_key:
+        return None
+
+    prompt = f"""# 角色
+你是一位擁有 20 年經驗的「資深台股分析師暨投資顧問」。
+
+# 任務
+用戶提出了一個問題，請根據你的專業知識回答。
+
+# 規則
+- 繁體中文回答
+- 簡潔條列式，重點明確
+- 若為投資相關問題，結尾加上「⚠️ 以上僅供研究參考，不構成投資建議。」
+- 若問題與股市/金融/投資完全無關，請簡短回答並提示用戶本系統主要用途為台股分析
+
+# 用戶問題
+{query}"""
+
+    data = json.dumps({
+        "model": "MiniMax-M2.7",
+        "messages": _build_messages(user_id, prompt),
+        "max_tokens": 1500,
+        "temperature": 0.3,
+    }).encode()
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        req = urllib.request.Request(MINIMAX_API_URL, data=data, method="POST", headers=headers)
+        with urllib.request.urlopen(req, timeout=60) as r:
+            result = json.loads(r.read())
+            content = result["choices"][0]["message"]["content"].strip()
+            import re
+            answer = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+            if not answer:
+                return None
+            _save_history(user_id, query, answer)
+            return {"answer": answer, "keywords": [query], "sources": []}
+    except Exception as e:
+        logger.error(f"_answer_general failed: {e}")
+        return None
