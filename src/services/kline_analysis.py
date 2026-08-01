@@ -449,6 +449,24 @@ def _build_analysis_prompt(stock_code: str, stock_name: str, period: str,
     vol = indicators.get("volume", {})
     ma_arr = indicators.get("ma_arrangement", "")
 
+    # Load user-defined framework first (needed to decide which indicators to include)
+    default_framework = """1. **趨勢判斷**：{根據均線排列、價格位置判斷上升/下降/盤整}
+2. **關鍵價位**：{找出支撐位與壓力位}
+3. **指標解讀**：{解讀 MACD/RSI/布林帶/量能}
+4. **型態分析**：{分析偵測到的K線型態意義}
+5. **綜合判斷**：{給出短線1-5日與中線5-20日操作方向}"""
+
+    try:
+        from src.core.database import get_analysis_preferences
+        prefs = get_analysis_preferences("default")
+        custom_framework = prefs.get("analysis_framework", "").strip()
+        if custom_framework:
+            framework_text = custom_framework
+        else:
+            framework_text = default_framework
+    except Exception:
+        framework_text = default_framework
+
     indicator_text = f"""【價格】
 - 最新收盤：{price.get('current')}  漲跌：{price.get('change')}（{price.get('change_pct')}%）
 - 日期：{price.get('date')}
@@ -460,13 +478,22 @@ def _build_analysis_prompt(stock_code: str, stock_name: str, period: str,
 - MA60: {ma.get('ma60', {}).get('value')} {ma.get('ma60', {}).get('direction')} 距離:{ma.get('ma60', {}).get('distance')}
 
 【MACD】
-- DIF: {macd.get('dif')}  MACD: {macd.get('macd')}  柱狀: {macd.get('histogram')}
+- DIF: {macd.get('dif')}  MACD: {macd.get('macd')}  柱狀: {macd.get('histogram')}"""
 
-【RSI(14)】{rsi}
+    # Conditionally include RSI and Bollinger based on framework content
+    if 'RSI' in framework_text or 'rsi' in framework_text.lower():
+        indicator_text += f"""
+
+【RSI(14)】{rsi}"""
+
+    if '布林' in framework_text or 'bollinger' in framework_text.lower():
+        indicator_text += f"""
 
 【布林帶(20,2)】
 - 上軌: {boll.get('upper')}  中軌: {boll.get('middle')}  下軌: {boll.get('lower')}
-- 帶寬: {boll.get('bandwidth')}%
+- 帶寬: {boll.get('bandwidth')}%"""
+
+    indicator_text += f"""
 
 【量能】
 - 今量: {vol.get('current_volume')}  5日均量: {vol.get('avg_volume_5d')}
@@ -489,25 +516,6 @@ def _build_analysis_prompt(stock_code: str, stock_name: str, period: str,
 
     period_name = {"daily": "日線", "weekly": "週線", "monthly": "月線"}.get(period, period)
 
-    # Default analysis framework
-    default_framework = """1. **趨勢判斷**：{根據均線排列、價格位置判斷上升/下降/盤整}
-2. **關鍵價位**：{找出支撐位與壓力位}
-3. **指標解讀**：{解讀 MACD/RSI/布林帶/量能}
-4. **型態分析**：{分析偵測到的K線型態意義}
-5. **綜合判斷**：{給出短線1-5日與中線5-20日操作方向}"""
-
-    # Load user-defined framework if available
-    try:
-        from src.core.database import get_analysis_preferences
-        prefs = get_analysis_preferences("default")
-        custom_framework = prefs.get("analysis_framework", "").strip()
-        if custom_framework:
-            framework_text = custom_framework
-        else:
-            framework_text = default_framework
-    except Exception:
-        framework_text = default_framework
-
     prompt = f"""# 角色
 你是一位擁有 20 年經驗的「資深技術分析師」，專精台股技術面分析。
 
@@ -520,7 +528,7 @@ def _build_analysis_prompt(stock_code: str, stock_name: str, period: str,
 # 格式要求
 - 繁體中文，條列式
 - 先用 1-2 句給出核心結論
-- 再分段詳述
+- 嚴格依照上方「分析框架」的段落結構輸出，不要自行增加額外段落
 - 結尾加上「⚠️ 以上為技術面分析，僅供研究參考，不構成投資建議。」
 
 ---
