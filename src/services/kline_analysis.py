@@ -490,11 +490,11 @@ def _build_analysis_prompt(stock_code: str, stock_name: str, period: str,
     period_name = {"daily": "日線", "weekly": "週線", "monthly": "月線"}.get(period, period)
 
     # Default analysis framework
-    default_framework = """1. **趨勢判斷**：目前處於什麼趨勢？（上升/下降/盤整）依據是什麼？
-2. **關鍵價位**：支撐位、壓力位各在哪裡？
-3. **指標解讀**：MACD/RSI/布林帶/量能各代表什麼意義？
-4. **型態分析**：偵測到的K線型態代表什麼？
-5. **綜合判斷**：短線（1-5日）和中線（5-20日）的操作建議方向"""
+    default_framework = """1. **趨勢判斷**：{根據均線排列、價格位置判斷上升/下降/盤整}
+2. **關鍵價位**：{找出支撐位與壓力位}
+3. **指標解讀**：{解讀 MACD/RSI/布林帶/量能}
+4. **型態分析**：{分析偵測到的K線型態意義}
+5. **綜合判斷**：{給出短線1-5日與中線5-20日操作方向}"""
 
     # Load user-defined framework if available
     try:
