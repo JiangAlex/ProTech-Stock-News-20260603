@@ -154,6 +154,11 @@
                 </select>
                 <label style="color:#8b9dc3;">自訂要求</label>
                 <input id="prefCustom" placeholder="其他分析要求..." style="padding:2px 6px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;">
+                <label style="color:#8b9dc3;">糾結閾值</label>
+                <div style="display:flex;align-items:center;gap:4px;">
+                    <input id="prefTangle" type="number" min="1" max="10" step="0.5" value="3" style="width:50px;padding:2px 6px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;">
+                    <span style="color:#6b7a8d;font-size:10px;">% (均線最大最小差距/股價 &lt; 此值 = 糾結)</span>
+                </div>
             </div>
             <details style="margin:6px 0;" id="frameworkDetails" ontoggle="if(this.open){const ta=document.getElementById('prefFramework');if(!ta.value.trim())ta.value=DEFAULT_FRAMEWORK;ta.focus();}">
                 <summary style="cursor:pointer;color:#4fc3f7;font-size:11px;">📝 自訂分析框架</summary>
@@ -350,6 +355,7 @@ async function loadAnalysisPrefs(){
         document.getElementById('prefRisk').value=p.risk_tolerance||'';
         document.getElementById('prefCustom').value=p.custom_prompt||'';
         document.getElementById('prefFramework').value=p.analysis_framework||'';
+        document.getElementById('prefTangle').value=p.ma_tangle_threshold||3;
     }catch(e){}
 }
 async function saveAnalysisPrefs(){
@@ -361,6 +367,7 @@ async function saveAnalysisPrefs(){
             risk_tolerance:document.getElementById('prefRisk').value,
             custom_prompt:document.getElementById('prefCustom').value,
             analysis_framework:document.getElementById('prefFramework').value,
+            ma_tangle_threshold:parseFloat(document.getElementById('prefTangle').value)||3,
         })});
         document.getElementById('prefSaveStatus').innerHTML='<span style="color:#26a69a;">✅ 已儲存</span>';
         setTimeout(()=>{document.getElementById('prefSaveStatus').innerHTML='';},2000);

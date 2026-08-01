@@ -202,7 +202,18 @@ def compute_all_indicators(kline_data: list[dict]) -> dict:
         elif ma_vals == sorted(ma_vals):
             indicators["ma_arrangement"] = "空頭排列"
         else:
-            indicators["ma_arrangement"] = "糾結"
+            # Check if MAs are converging (within threshold % of price)
+            try:
+                from src.core.database import get_analysis_preferences
+                _prefs = get_analysis_preferences("default")
+                tangle_pct = float(_prefs.get("ma_tangle_threshold", 3.0)) / 100
+            except Exception:
+                tangle_pct = 0.03
+            ma_spread = (max(ma_vals) - min(ma_vals)) / current_price if current_price else 0
+            if ma_spread < tangle_pct:
+                indicators["ma_arrangement"] = "糾結"
+            else:
+                indicators["ma_arrangement"] = "交錯"
     else:
         indicators["ma_arrangement"] = "資料不足"
 

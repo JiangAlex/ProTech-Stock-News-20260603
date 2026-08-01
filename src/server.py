@@ -450,6 +450,7 @@ def api_update_analysis_preferences(body: dict):
         risk_tolerance=body.get("risk_tolerance", ""),
         custom_prompt=body.get("custom_prompt", ""),
         analysis_framework=body.get("analysis_framework", ""),
+        ma_tangle_threshold=float(body.get("ma_tangle_threshold", 3.0)),
     )
     return {"ok": True}
 

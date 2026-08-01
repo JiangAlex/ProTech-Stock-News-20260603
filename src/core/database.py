@@ -28,6 +28,7 @@ def init_db():
             )
         """)
         cur.execute("ALTER TABLE analysis_preferences ADD COLUMN IF NOT EXISTS analysis_framework TEXT DEFAULT ''")
+        cur.execute("ALTER TABLE analysis_preferences ADD COLUMN IF NOT EXISTS ma_tangle_threshold NUMERIC DEFAULT 3.0")
         conn.commit()
     finally:
         conn.close()
@@ -290,27 +291,30 @@ def get_analysis_preferences(user_id="default"):
             "risk_tolerance": "",
             "custom_prompt": "",
             "analysis_framework": "",
+            "ma_tangle_threshold": 3.0,
         }
     finally:
         conn.close()
 
 
 def update_analysis_preferences(user_id="default", trading_style="", preferred_indicators="",
-                                risk_tolerance="", custom_prompt="", analysis_framework=""):
+                                risk_tolerance="", custom_prompt="", analysis_framework="",
+                                ma_tangle_threshold=3.0):
     """Update user's AI analysis preferences."""
     conn = _conn()
     try:
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO analysis_preferences (user_id, trading_style, preferred_indicators, risk_tolerance, custom_prompt, analysis_framework)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO analysis_preferences (user_id, trading_style, preferred_indicators, risk_tolerance, custom_prompt, analysis_framework, ma_tangle_threshold)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (user_id) DO UPDATE SET
                 trading_style=EXCLUDED.trading_style,
                 preferred_indicators=EXCLUDED.preferred_indicators,
                 risk_tolerance=EXCLUDED.risk_tolerance,
                 custom_prompt=EXCLUDED.custom_prompt,
-                analysis_framework=EXCLUDED.analysis_framework
-        """, (user_id, trading_style, preferred_indicators, risk_tolerance, custom_prompt, analysis_framework))
+                analysis_framework=EXCLUDED.analysis_framework,
+                ma_tangle_threshold=EXCLUDED.ma_tangle_threshold
+        """, (user_id, trading_style, preferred_indicators, risk_tolerance, custom_prompt, analysis_framework, ma_tangle_threshold))
         conn.commit()
     finally:
         conn.close()
