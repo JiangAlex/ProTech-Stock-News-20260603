@@ -155,10 +155,10 @@
                 <label style="color:#8b9dc3;">自訂要求</label>
                 <input id="prefCustom" placeholder="其他分析要求..." style="padding:2px 6px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;">
             </div>
-            <details style="margin:6px 0;">
-                <summary style="cursor:pointer;color:#4fc3f7;font-size:11px;">📝 自訂分析框架（點擊展開編輯）</summary>
+            <details style="margin:6px 0;" id="frameworkDetails">
+                <summary style="cursor:pointer;color:#4fc3f7;font-size:11px;">📝 自訂分析框架 <button type="button" onclick="event.stopPropagation();openFrameworkEditor()" class="btn btn-s" style="font-size:10px;margin-left:8px;background:#1a3a4a;border-color:#4fc3f7;">✎ 編輯</button></summary>
                 <div style="margin-top:4px;">
-                    <textarea id="prefFramework" rows="7" placeholder="1. **趨勢判斷**：目前處於什麼趨勢？&#10;2. **關鍵價位**：支撐位、壓力位各在哪裡？&#10;3. **指標解讀**：MACD/RSI/布林帶/量能各代表什麼意義？&#10;4. **型態分析**：偵測到的K線型態代表什麼？&#10;5. **綜合判斷**：短線和中線的操作建議方向" style="width:100%;padding:4px 6px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;font-family:monospace;resize:vertical;"></textarea>
+                    <textarea id="prefFramework" rows="7" style="width:100%;padding:4px 6px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;font-family:monospace;resize:vertical;"></textarea>
                     <div style="color:#6b7a8d;font-size:10px;margin-top:2px;">留空則使用預設框架。可自訂段落結構，AI 將依照此框架產生分析報告。</div>
                 </div>
             </details>
@@ -365,6 +365,15 @@ async function saveAnalysisPrefs(){
         document.getElementById('prefSaveStatus').innerHTML='<span style="color:#26a69a;">✅ 已儲存</span>';
         setTimeout(()=>{document.getElementById('prefSaveStatus').innerHTML='';},2000);
     }catch(e){document.getElementById('prefSaveStatus').innerHTML='<span style="color:#ef5350;">儲存失敗</span>';}
+}
+
+const DEFAULT_FRAMEWORK=`1. **趨勢判斷**：目前處於什麼趨勢？（上升/下降/盤整）依據是什麼？\n2. **關鍵價位**：支撐位、壓力位各在哪裡？\n3. **指標解讀**：MACD/RSI/布林帶/量能各代表什麼意義？\n4. **型態分析**：偵測到的K線型態代表什麼？\n5. **綜合判斷**：短線（1-5日）和中線（5-20日）的操作建議方向`;
+function openFrameworkEditor(){
+    const details=document.getElementById('frameworkDetails');
+    details.open=true;
+    const ta=document.getElementById('prefFramework');
+    if(!ta.value.trim()) ta.value=DEFAULT_FRAMEWORK;
+    ta.focus();
 }
 
 function renderMASettings(){
