@@ -2060,7 +2060,10 @@ setInterval(pollAlerts,30000);
 // --- Voice Recognition & Speech ---
 function startVoice(inputId){
     if(!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)){
-        alert('您的瀏覽器不支援語音辨識，請使用 Chrome 或 Edge');return;
+        // Fallback: prompt input
+        const val=prompt('請輸入內容：');
+        if(val){document.getElementById(inputId).value=val;if(inputId==='searchInput')doSearch();else if(inputId==='newsNoteSearch')aiSearchNotes();}
+        return;
     }
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
     const recognition=new SR();
@@ -2069,43 +2072,60 @@ function startVoice(inputId){
     recognition.continuous=false;
     const input=document.getElementById(inputId);
     const originalPlaceholder=input.placeholder;
-    input.placeholder='🎤 聆聽中...';
-    input.style.borderColor='#ef5350';
-    recognition.onresult=(e)=>{
-        let final='',interim='';
-        for(let i=0;i<e.results.length;i++){
-            if(e.results[i].isFinal) final+=e.results[i][0].transcript;
-            else interim+=e.results[i][0].transcript;
-        }
-        input.value=final||interim;
-    };
-    recognition.onend=()=>{
-        input.placeholder=originalPlaceholder;
-        input.style.borderColor='';
-        // Auto trigger search if has value
-        if(input.value.trim()){
-            if(inputId==='searchInput') doSearch();
-            else if(inputId==='newsNoteSearch') aiSearchNotes();
-        }
-    };
-    recognition.onerror=(e)=>{
-        input.placeholder=originalPlaceholder;
-        input.style.borderColor='';
-        if(e.error!=='no-speech') console.error('Voice error:',e.error);
-    };
-    recognition.start();
+
+    // Request microphone permission first
+    navigator.mediaDevices.getUserMedia({audio:true}).then(stream=>{
+        stream.getTracks().forEach(t=>t.stop()); // release immediately
+        input.placeholder='🎤 聆聽中...';
+        input.style.borderColor='#ef5350';
+        recognition.onresult=(e)=>{
+            let final='',interim='';
+            for(let i=0;i<e.results.length;i++){
+                if(e.results[i].isFinal) final+=e.results[i][0].transcript;
+                else interim+=e.results[i][0].transcript;
+            }
+            input.value=final||interim;
+        };
+        recognition.onend=()=>{
+            input.placeholder=originalPlaceholder;
+            input.style.borderColor='';
+            if(input.value.trim()){
+                if(inputId==='searchInput') doSearch();
+                else if(inputId==='newsNoteSearch') aiSearchNotes();
+            }
+        };
+        recognition.onerror=(e)=>{
+            input.placeholder=originalPlaceholder;
+            input.style.borderColor='';
+            if(e.error==='not-allowed') alert('麥克風權限被拒絕。\n請用 https:// 或 localhost 連線，\n或在瀏覽器設定中允許麥克風權限。');
+            else if(e.error!=='no-speech') console.error('Voice error:',e.error);
+        };
+        recognition.start();
+    }).catch(err=>{
+        alert('無法存取麥克風。\n\n可能原因：\n1. 非 HTTPS 連線（請用 localhost 或 https）\n2. 麥克風權限被封鎖\n\n錯誤：'+err.message);
+    });
 }
 
 function speakText(text){
     if(!('speechSynthesis' in window)){alert('瀏覽器不支援語音合成');return;}
     speechSynthesis.cancel();
     // Clean markdown/symbols for better speech
-    const clean=text.replace(/[#*|_\-=`>]/g,'').replace(/\n{2,}/g,'\n').replace(/⚠️/g,'注意').trim();
-    const utterance=new SpeechSynthesisUtterance(clean);
-    utterance.lang='zh-TW';
-    utterance.rate=1.0;
-    utterance.pitch=1.0;
-    speechSynthesis.speak(utterance);
+    const clean=text.replace(/[#*|_\-=`>]/g,'').replace(/\n{2,}/g,'\n').replace(/⚠️/g,'注意').replace(/↑/g,'向上').replace(/↓/g,'向下').replace(/→/g,'持平').trim();
+    if(!clean){alert('無內容可播放');return;}
+    // Split into chunks (Chrome has a bug with long text)
+    const chunks=clean.match(/[^。！？\n]{1,200}[。！？\n]?/g)||[clean];
+    let idx=0;
+    function speakNext(){
+        if(idx>=chunks.length)return;
+        const utterance=new SpeechSynthesisUtterance(chunks[idx]);
+        utterance.lang='zh-TW';
+        utterance.rate=1.1;
+        utterance.pitch=1.0;
+        utterance.onend=()=>{idx++;speakNext();};
+        utterance.onerror=()=>{idx++;speakNext();};
+        speechSynthesis.speak(utterance);
+    }
+    speakNext();
 }
 
 function stopSpeak(){
