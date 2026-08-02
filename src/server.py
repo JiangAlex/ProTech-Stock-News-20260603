@@ -540,6 +540,7 @@ def api_market_scan(
     ma_dir: str = Query(None),
     ma_cross: str = Query(None),
     change_rank_max: int = Query(None),
+    scan_date: str = Query(None),
     limit: int = Query(50, le=200),
 ):
     """Scan market with conditions from daily_indicators."""
@@ -550,9 +551,19 @@ def api_market_scan(
     conn = psycopg2.connect(**DB_CONFIG)
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        # Get latest date in daily_indicators
-        cur.execute("SELECT MAX(date) FROM daily_indicators")
-        latest = cur.fetchone()["max"]
+        # Use specified date or latest date in daily_indicators
+        if scan_date:
+            latest = scan_date
+            # Verify this date exists
+            cur.execute("SELECT date FROM daily_indicators WHERE date = %s LIMIT 1", (scan_date,))
+            if not cur.fetchone():
+                # Find closest available date <= scan_date
+                cur.execute("SELECT MAX(date) FROM daily_indicators WHERE date <= %s", (scan_date,))
+                row = cur.fetchone()
+                latest = row["max"] if row and row["max"] else None
+        else:
+            cur.execute("SELECT MAX(date) FROM daily_indicators")
+            latest = cur.fetchone()["max"]
         if not latest:
             return {"date": None, "results": [], "total": 0}
 

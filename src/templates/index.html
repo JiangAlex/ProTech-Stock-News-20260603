@@ -1605,6 +1605,7 @@ function showMarketScan(){
             <div><label style="color:#8b9dc3;">漲幅排名</label> <select id="scanChangeRank"><option value="">不限</option><option value="10">Top 10</option><option value="20">Top 20</option><option value="50">Top 50</option><option value="100">Top 100</option></select></div>
             <div><label style="color:#8b9dc3;">產業</label> <select id="scanIndustry"><option value="">全部</option></select></div>
             <div><label style="color:#8b9dc3;">市場</label> <select id="scanMarket"><option value="">全部</option><option value="TSE">上市</option><option value="TPEx">上櫃</option></select></div>
+            <div><label style="color:#8b9dc3;">日期</label> <input id="scanDate" type="date" style="padding:2px 4px;border-radius:3px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;"></div>
         </div>
         <button class="btn btn-p" onclick="runMarketScan()" style="font-size:11px;padding:4px 12px;">🔍 掃描</button>
         <span id="scanStatus" style="font-size:10px;color:#6b7a8d;margin-left:8px;"></span>
@@ -1647,6 +1648,8 @@ async function runMarketScan(){
     if(ind)params.set('industry',ind);
     const mkt=document.getElementById('scanMarket').value;
     if(mkt)params.set('market',mkt);
+    const scanDate=document.getElementById('scanDate').value;
+    if(scanDate)params.set('scan_date',scanDate);
 
     const status=document.getElementById('scanStatus');
     const results=document.getElementById('scanResults');
