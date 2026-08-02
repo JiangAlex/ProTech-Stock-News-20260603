@@ -882,6 +882,8 @@ function renderDividendChart(id,data){
 // --- Watchlist ---
 async function loadWatchlist(){
     const p=document.getElementById('watchlistPanel');
+    const scrollTop=p.scrollTop;
+    const pageScrollY=window.scrollY;
     if(currentUser==='default'){
         p.innerHTML='<div class="loading" style="color:#ff9800;">請在右上角輸入使用者名稱</div>';
         return;
@@ -977,6 +979,8 @@ async function loadWatchlist(){
             </div>`;}).join('')}</div>
         </div>`).join('');
     p.innerHTML=html;
+    p.scrollTop=scrollTop;
+    window.scrollTo(0, pageScrollY);
 }
 async function toggleWatch(){
     if(!currentCode)return;
