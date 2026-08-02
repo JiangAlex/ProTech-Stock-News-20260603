@@ -93,6 +93,7 @@
     <h1>📈 ProTech Stock</h1>
     <div class="search-box">
         <input type="text" id="searchInput" placeholder="輸入股票代號 (如 2330, DJI, IXIC, SOX)" />
+        <button class="btn btn-s" onclick="startVoice('searchInput')" title="語音輸入" style="font-size:14px;padding:4px 8px;">🎤</button>
         <button class="btn btn-p" onclick="doSearch()">查詢</button>
     </div>
     <div style="display:flex;gap:3px;">
@@ -207,7 +208,11 @@
         <div id="aiAnalysisPanel" style="display:none;margin:8px 14px;background:#14161e;border:1px solid #4fc3f7;border-radius:6px;padding:12px;max-height:400px;overflow-y:auto;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
                 <span style="font-size:12px;font-weight:600;color:#4fc3f7;">🤖 AI 技術分析</span>
-                <button onclick="document.getElementById('aiAnalysisPanel').style.display='none'" style="background:none;border:none;color:#6b7a8d;cursor:pointer;font-size:14px;">✕</button>
+                <div style="display:flex;gap:6px;align-items:center;">
+                    <button onclick="speakText(document.getElementById('aiAnalysisContent').innerText)" title="語音播放" style="background:none;border:none;color:#4fc3f7;cursor:pointer;font-size:14px;">🔊</button>
+                    <button onclick="stopSpeak()" title="停止播放" style="background:none;border:none;color:#6b7a8d;cursor:pointer;font-size:14px;">⏹</button>
+                    <button onclick="document.getElementById('aiAnalysisPanel').style.display='none'" style="background:none;border:none;color:#6b7a8d;cursor:pointer;font-size:14px;">✕</button>
+                </div>
             </div>
             <div id="aiAnalysisContent" style="font-size:12px;color:#e1e5ea;white-space:pre-wrap;line-height:1.7;"></div>
         </div>
@@ -272,6 +277,7 @@
             </div>
             <div style="display:flex;gap:4px;margin-bottom:8px;align-items:center;">
                 <input type="text" id="newsNoteSearch" placeholder="🔍 搜尋備註內容..." style="flex:1;padding:6px 10px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;" oninput="searchNewsNotes()">
+                <button class="btn btn-s" onclick="startVoice('newsNoteSearch')" title="語音輸入" style="font-size:12px;padding:4px 6px;">🎤</button>
                 <button class="btn btn-s" onclick="aiSearchNotes()" style="font-size:10px;padding:4px 8px;">🤖 AI搜尋</button>
                 <button class="btn btn-s" onclick="document.getElementById('newsNoteSearch').value='';loadNewsNotes();" style="font-size:10px;padding:4px 8px;">清除</button>
             </div>
@@ -1875,8 +1881,14 @@ async function aiSearchNotes(){
         let html=`<div style="font-size:10px;color:#8b9dc3;margin-bottom:6px;">AI 擴展關鍵詞：${keywords.join('、')}</div>`;
         // AI Answer block
         html+=`<div style="background:#14161e;border:1px solid #4fc3f7;border-radius:6px;padding:10px;margin-bottom:10px;">
-            <div style="font-size:11px;font-weight:600;color:#4fc3f7;margin-bottom:6px;">🤖 AI 分析回答</div>
-            <div style="font-size:12px;color:#e1e5ea;white-space:pre-wrap;line-height:1.6;">${answer.replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <span style="font-size:11px;font-weight:600;color:#4fc3f7;">🤖 AI 分析回答</span>
+                <div style="display:flex;gap:4px;">
+                    <button onclick="speakText(document.getElementById('aiAnswerText').innerText)" title="語音播放" style="background:none;border:none;color:#4fc3f7;cursor:pointer;font-size:13px;">🔊</button>
+                    <button onclick="stopSpeak()" title="停止" style="background:none;border:none;color:#6b7a8d;cursor:pointer;font-size:13px;">⏹</button>
+                </div>
+            </div>
+            <div id="aiAnswerText" style="font-size:12px;color:#e1e5ea;white-space:pre-wrap;line-height:1.6;">${answer.replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>
         </div>`;
         // Sources
         if(sources.length){
@@ -2044,6 +2056,61 @@ function markdownToHtml(md) {
 })();
 
 setInterval(pollAlerts,30000);
+
+// --- Voice Recognition & Speech ---
+function startVoice(inputId){
+    if(!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)){
+        alert('您的瀏覽器不支援語音辨識，請使用 Chrome 或 Edge');return;
+    }
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    const recognition=new SR();
+    recognition.lang='zh-TW';
+    recognition.interimResults=true;
+    recognition.continuous=false;
+    const input=document.getElementById(inputId);
+    const originalPlaceholder=input.placeholder;
+    input.placeholder='🎤 聆聽中...';
+    input.style.borderColor='#ef5350';
+    recognition.onresult=(e)=>{
+        let final='',interim='';
+        for(let i=0;i<e.results.length;i++){
+            if(e.results[i].isFinal) final+=e.results[i][0].transcript;
+            else interim+=e.results[i][0].transcript;
+        }
+        input.value=final||interim;
+    };
+    recognition.onend=()=>{
+        input.placeholder=originalPlaceholder;
+        input.style.borderColor='';
+        // Auto trigger search if has value
+        if(input.value.trim()){
+            if(inputId==='searchInput') doSearch();
+            else if(inputId==='newsNoteSearch') aiSearchNotes();
+        }
+    };
+    recognition.onerror=(e)=>{
+        input.placeholder=originalPlaceholder;
+        input.style.borderColor='';
+        if(e.error!=='no-speech') console.error('Voice error:',e.error);
+    };
+    recognition.start();
+}
+
+function speakText(text){
+    if(!('speechSynthesis' in window)){alert('瀏覽器不支援語音合成');return;}
+    speechSynthesis.cancel();
+    // Clean markdown/symbols for better speech
+    const clean=text.replace(/[#*|_\-=`>]/g,'').replace(/\n{2,}/g,'\n').replace(/⚠️/g,'注意').trim();
+    const utterance=new SpeechSynthesisUtterance(clean);
+    utterance.lang='zh-TW';
+    utterance.rate=1.0;
+    utterance.pitch=1.0;
+    speechSynthesis.speak(utterance);
+}
+
+function stopSpeak(){
+    if('speechSynthesis' in window) speechSynthesis.cancel();
+}
 </script>
 </body>
 </html>
