@@ -962,7 +962,7 @@ async function loadWatchlist(){
                 const ret=totalCostS>0?((pl/totalCostS)*100).toFixed(1):'—';
                 const avgCost=totalShares>0?(totalCostS/totalShares/1000).toFixed(2):0;
                 const hasPos=totalShares>0;
-                return `<div class="stock-item" style="flex-wrap:wrap;" onclick="loadStock('${s.stock_code}')">
+                return `<div class="stock-item" style="flex-wrap:wrap;" onclick="if(event.target.tagName==='SELECT'||event.target.tagName==='OPTION')return;loadStock('${s.stock_code}')">
                 <div class="info"><span class="code">${s.stock_code}</span><span class="name">${s.stock_name}</span></div>
                 <span style="display:flex;gap:4px;align-items:center;">
                     ${hasPos?`<span style="font-size:10px;color:${pl>=0?'#ef5350':'#26a69a'};">${ret}%</span>`:''}
@@ -979,8 +979,7 @@ async function loadWatchlist(){
             </div>`;}).join('')}</div>
         </div>`).join('');
     p.innerHTML=html;
-    p.scrollTop=scrollTop;
-    window.scrollTo(0, pageScrollY);
+    requestAnimationFrame(()=>{p.scrollTop=scrollTop;window.scrollTo(0,pageScrollY);});
 }
 async function toggleWatch(){
     if(!currentCode)return;
