@@ -33,13 +33,16 @@ def init_daily_indicators_table():
                 boll_upper FLOAT, boll_middle FLOAT, boll_lower FLOAT, boll_bandwidth FLOAT,
                 volume BIGINT, volume_ratio FLOAT, volume_trend TEXT,
                 patterns JSONB DEFAULT '[]',
+                change_rank INT,
                 PRIMARY KEY (stock_code, date)
             )
         """)
+        cur.execute("ALTER TABLE daily_indicators ADD COLUMN IF NOT EXISTS change_rank INT")
         # Index for common queries
         cur.execute("CREATE INDEX IF NOT EXISTS idx_di_date ON daily_indicators (date)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_di_rsi ON daily_indicators (date, rsi14)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_di_ma_arr ON daily_indicators (date, ma_arrangement)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_di_change_rank ON daily_indicators (date, change_rank)")
         conn.commit()
         logger.info("daily_indicators table ready")
     finally:
@@ -198,6 +201,18 @@ def compute_market_indicators(target_date=None) -> int:
         """, rows_to_insert)
         conn.commit()
         logger.info(f"Stored indicators for {len(rows_to_insert)} stocks on {target_date}")
+
+        # Step 5: Compute change_rank (漲幅排名, 1=漲最多)
+        cur.execute("""
+            UPDATE daily_indicators di SET change_rank = sub.rn
+            FROM (
+                SELECT stock_code, ROW_NUMBER() OVER (ORDER BY change_pct DESC NULLS LAST) AS rn
+                FROM daily_indicators WHERE date = %s AND change_pct IS NOT NULL
+            ) sub
+            WHERE di.stock_code = sub.stock_code AND di.date = %s
+        """, (target_date, target_date))
+        conn.commit()
+        logger.info(f"Computed change_rank for {target_date}")
     finally:
         conn.close()
 

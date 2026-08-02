@@ -1593,6 +1593,7 @@ function showMarketScan(){
             <div><label style="color:#8b9dc3;">量趨勢</label> <select id="scanVolTrend"><option value="">不限</option><option value="放量">放量</option><option value="縮量">縮量</option><option value="平量">平量</option></select></div>
             <div><label style="color:#8b9dc3;">漲跌%≥</label> <input id="scanChgMin" type="number" step="0.5" placeholder="" style="width:45px;padding:2px;border-radius:3px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;"></div>
             <div><label style="color:#8b9dc3;">漲跌%≤</label> <input id="scanChgMax" type="number" step="0.5" placeholder="" style="width:45px;padding:2px;border-radius:3px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;"></div>
+            <div><label style="color:#8b9dc3;">漲幅排名</label> <select id="scanChangeRank"><option value="">不限</option><option value="10">Top 10</option><option value="20">Top 20</option><option value="50">Top 50</option><option value="100">Top 100</option></select></div>
             <div><label style="color:#8b9dc3;">產業</label> <select id="scanIndustry"><option value="">全部</option></select></div>
             <div><label style="color:#8b9dc3;">市場</label> <select id="scanMarket"><option value="">全部</option><option value="TSE">上市</option><option value="TPEx">上櫃</option></select></div>
         </div>
@@ -1631,6 +1632,8 @@ async function runMarketScan(){
     if(chgMin)params.set('change_pct_min',chgMin);
     const chgMax=document.getElementById('scanChgMax').value;
     if(chgMax)params.set('change_pct_max',chgMax);
+    const changeRank=document.getElementById('scanChangeRank').value;
+    if(changeRank)params.set('change_rank_max',changeRank);
     const ind=document.getElementById('scanIndustry').value;
     if(ind)params.set('industry',ind);
     const mkt=document.getElementById('scanMarket').value;

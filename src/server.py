@@ -86,11 +86,82 @@ async def _daily_rank_job():
             target += timedelta(days=1)
         await asyncio.sleep((target - now).total_seconds())
         from datetime import date
+        today = date.today().isoformat()
         for direction in ("up", "down"):
             for market in ("tse", "otc"):
                 data = fetch_rank(direction, market)
                 if data:
-                    save_rank(date.today().isoformat(), direction, market, data)
+                    save_rank(today, direction, market, data)
+        # Ensure at least 100 entries per direction by supplementing from daily_indicators
+        try:
+            _supplement_rank_from_indicators(today)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Rank supplement error: {e}")
+
+
+def _supplement_rank_from_indicators(today_str: str):
+    """Ensure rank_history has at least 100 entries per direction+market by
+    supplementing from daily_indicators if Yahoo didn't provide enough."""
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    from src.core.pg_client import DB_CONFIG
+
+    conn = psycopg2.connect(**DB_CONFIG)
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        market_map = {"tse": "TSE", "otc": "TPEx"}
+
+        for direction in ("up", "down"):
+            for market_key, market_val in market_map.items():
+                # Count existing entries
+                cur.execute(
+                    "SELECT COUNT(*) as cnt FROM rank_history WHERE date=%s AND direction=%s AND market=%s",
+                    (today_str, direction, market_key))
+                existing = cur.fetchone()["cnt"]
+
+                if existing >= 100:
+                    continue
+
+                # Get existing codes to avoid duplicates
+                cur.execute(
+                    "SELECT code FROM rank_history WHERE date=%s AND direction=%s AND market=%s",
+                    (today_str, direction, market_key))
+                existing_codes = {r["code"] for r in cur.fetchall()}
+
+                # Fetch from daily_indicators, ordered by change_pct
+                order = "DESC" if direction == "up" else "ASC"
+                cur.execute(f"""
+                    SELECT di.stock_code, sb.stock_name, di.close, di.change_pct
+                    FROM daily_indicators di
+                    JOIN stock_basic sb ON sb.stock_code = di.stock_code
+                    WHERE di.date = %s AND sb.market = %s
+                      AND di.change_pct IS NOT NULL
+                    ORDER BY di.change_pct {order}
+                    LIMIT 100
+                """, (today_str, market_val))
+                candidates = cur.fetchall()
+
+                # Insert missing entries up to 100
+                rank_num = existing
+                for c in candidates:
+                    if rank_num >= 100:
+                        break
+                    if c["stock_code"] in existing_codes:
+                        continue
+                    rank_num += 1
+                    cur.execute(
+                        "INSERT INTO rank_history (date,direction,market,rank,code,name,price,change_val,change_pct) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                        (today_str, direction, market_key, rank_num,
+                         c["stock_code"], c["stock_name"], c["close"],
+                         round(c["change_pct"] * c["close"] / 100, 2) if c["close"] else 0,
+                         f"{c['change_pct']:.2f}%"))
+                    existing_codes.add(c["stock_code"])
+
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # In-memory store for triggered alerts (for frontend polling)
@@ -468,6 +539,7 @@ def api_market_scan(
     price_below_ma: str = Query(None),
     ma_dir: str = Query(None),
     ma_cross: str = Query(None),
+    change_rank_max: int = Query(None),
     limit: int = Query(50, le=200),
 ):
     """Scan market with conditions from daily_indicators."""
@@ -551,6 +623,11 @@ def api_market_scan(
                     conditions.append(f"{fast_col} < {slow_col}")
                     conditions.append(f"({slow_col} - {fast_col}) / {fast_col} < 0.01")
                     conditions.append(f"{fast_col} IS NOT NULL AND {slow_col} IS NOT NULL")
+
+        # Change rank (漲幅排名)
+        if change_rank_max is not None:
+            conditions.append("di.change_rank <= %s")
+            params.append(change_rank_max)
 
         where_clause = " AND ".join(conditions)
         params.append(limit)
