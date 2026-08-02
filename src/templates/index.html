@@ -1585,6 +1585,10 @@ function showMarketScan(){
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;margin-bottom:6px;">
             <div><label style="color:#8b9dc3;">RSI</label> <select id="scanRsiOp"><option value="">不限</option><option value="lt30">< 30 超賣</option><option value="gt70">> 70 超買</option><option value="lt50">< 50</option></select></div>
             <div><label style="color:#8b9dc3;">均線</label> <select id="scanMA"><option value="">不限</option><option value="多頭排列">多頭排列</option><option value="空頭排列">空頭排列</option><option value="糾結">糾結</option><option value="交錯">交錯</option></select></div>
+            <div><label style="color:#8b9dc3;">站上MA</label> <select id="scanAboveMA"><option value="">不限</option><option value="5">MA5</option><option value="10">MA10</option><option value="20">MA20</option><option value="60">MA60</option></select></div>
+            <div><label style="color:#8b9dc3;">跌破MA</label> <select id="scanBelowMA"><option value="">不限</option><option value="5">MA5</option><option value="10">MA10</option><option value="20">MA20</option><option value="60">MA60</option></select></div>
+            <div><label style="color:#8b9dc3;">MA方向</label> <select id="scanMADir"><option value="">不限</option><option value="5_up">MA5↑</option><option value="10_up">MA10↑</option><option value="20_up">MA20↑</option><option value="60_up">MA60↑</option><option value="5_down">MA5↓</option><option value="10_down">MA10↓</option><option value="20_down">MA20↓</option><option value="60_down">MA60↓</option></select></div>
+            <div><label style="color:#8b9dc3;">MA交叉</label> <select id="scanMACross"><option value="">不限</option><option value="5_20_up">MA5金叉MA20</option><option value="5_20_down">MA5死叉MA20</option><option value="5_60_up">MA5金叉MA60</option><option value="5_60_down">MA5死叉MA60</option><option value="10_20_up">MA10金叉MA20</option><option value="10_20_down">MA10死叉MA20</option><option value="20_60_up">MA20金叉MA60</option><option value="20_60_down">MA20死叉MA60</option></select></div>
             <div><label style="color:#8b9dc3;">量比≥</label> <input id="scanVolRatio" type="number" step="0.1" placeholder="如 1.5" style="width:50px;padding:2px;border-radius:3px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;"></div>
             <div><label style="color:#8b9dc3;">量趨勢</label> <select id="scanVolTrend"><option value="">不限</option><option value="放量">放量</option><option value="縮量">縮量</option><option value="平量">平量</option></select></div>
             <div><label style="color:#8b9dc3;">漲跌%≥</label> <input id="scanChgMin" type="number" step="0.5" placeholder="" style="width:45px;padding:2px;border-radius:3px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;"></div>
@@ -1611,6 +1615,14 @@ async function runMarketScan(){
     else if(rsiOp==='lt50'){params.set('rsi_max','50');}
     const ma=document.getElementById('scanMA').value;
     if(ma)params.set('ma_arrangement',ma);
+    const aboveMA=document.getElementById('scanAboveMA').value;
+    if(aboveMA)params.set('price_above_ma',aboveMA);
+    const belowMA=document.getElementById('scanBelowMA').value;
+    if(belowMA)params.set('price_below_ma',belowMA);
+    const maDir=document.getElementById('scanMADir').value;
+    if(maDir)params.set('ma_dir',maDir);
+    const maCross=document.getElementById('scanMACross').value;
+    if(maCross)params.set('ma_cross',maCross);
     const vr=document.getElementById('scanVolRatio').value;
     if(vr)params.set('volume_ratio_min',vr);
     const vt=document.getElementById('scanVolTrend').value;

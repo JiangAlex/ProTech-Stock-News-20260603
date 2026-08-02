@@ -464,6 +464,10 @@ def api_market_scan(
     volume_trend: str = Query(None),
     industry: str = Query(None),
     market: str = Query(None),
+    price_above_ma: str = Query(None),
+    price_below_ma: str = Query(None),
+    ma_dir: str = Query(None),
+    ma_cross: str = Query(None),
     limit: int = Query(50, le=200),
 ):
     """Scan market with conditions from daily_indicators."""
@@ -511,6 +515,42 @@ def api_market_scan(
         if market:
             conditions.append("sb.market = %s")
             params.append(market)
+        # Price above MA (e.g. "20" means close > MA20)
+        if price_above_ma:
+            ma_col = f"di.ma{price_above_ma}"
+            conditions.append(f"di.close > {ma_col}")
+            conditions.append(f"{ma_col} IS NOT NULL")
+        # Price below MA
+        if price_below_ma:
+            ma_col = f"di.ma{price_below_ma}"
+            conditions.append(f"di.close < {ma_col}")
+            conditions.append(f"{ma_col} IS NOT NULL")
+        # MA direction (e.g. "20_up" means MA20 trending up)
+        if ma_dir:
+            parts = ma_dir.split("_")
+            if len(parts) == 2:
+                ma_period, direction = parts
+                dir_col = f"di.ma{ma_period}_dir"
+                dir_val = "↑" if direction == "up" else "↓" if direction == "down" else "→"
+                conditions.append(f"{dir_col} = %s")
+                params.append(dir_val)
+        # MA cross (e.g. "5_20_up" means MA5 crossed above MA20)
+        if ma_cross:
+            parts = ma_cross.split("_")
+            if len(parts) == 3:
+                fast, slow, cross_dir = parts
+                fast_col = f"di.ma{fast}"
+                slow_col = f"di.ma{slow}"
+                if cross_dir == "up":
+                    # Golden cross: MA_fast > MA_slow and they are close (within 1%)
+                    conditions.append(f"{fast_col} > {slow_col}")
+                    conditions.append(f"({fast_col} - {slow_col}) / {slow_col} < 0.01")
+                    conditions.append(f"{fast_col} IS NOT NULL AND {slow_col} IS NOT NULL")
+                else:
+                    # Death cross: MA_fast < MA_slow and they are close
+                    conditions.append(f"{fast_col} < {slow_col}")
+                    conditions.append(f"({slow_col} - {fast_col}) / {fast_col} < 0.01")
+                    conditions.append(f"{fast_col} IS NOT NULL AND {slow_col} IS NOT NULL")
 
         where_clause = " AND ".join(conditions)
         params.append(limit)
