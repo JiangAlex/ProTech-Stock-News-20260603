@@ -115,20 +115,24 @@ def compute_bollinger(closes: list[float], period=20, num_std=2) -> dict:
 
 
 def compute_volume_analysis(volumes: list[int], period=5) -> dict:
-    """Analyze volume trends."""
+    """Analyze volume trends.
+
+    放量/縮量判定基於單日量比（當日成交量 / 近N日均量）：
+    - 放量：volume_ratio >= 1.5
+    - 縮量：volume_ratio <= 0.6
+    - 平量：其餘
+    """
     if len(volumes) < period + 1:
         return {"avg_volume": None, "volume_ratio": None, "trend": "不明"}
 
-    recent_avg = sum(volumes[-period:]) / period
-    prev_avg = sum(volumes[-period * 2:-period]) / period if len(volumes) >= period * 2 else recent_avg
+    recent_avg = sum(volumes[-period - 1:-1]) / period
     current = volumes[-1]
 
     volume_ratio = current / recent_avg if recent_avg > 0 else 0
-    trend_ratio = recent_avg / prev_avg if prev_avg > 0 else 1
 
-    if trend_ratio > 1.3:
+    if volume_ratio >= 1.5:
         trend = "放量"
-    elif trend_ratio < 0.7:
+    elif volume_ratio <= 0.6:
         trend = "縮量"
     else:
         trend = "平量"
