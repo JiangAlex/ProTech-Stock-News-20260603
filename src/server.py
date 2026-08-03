@@ -74,6 +74,35 @@ def startup():
     asyncio.get_event_loop().create_task(_realtime_alert_job())
     asyncio.get_event_loop().create_task(_weekly_news_digest_job())
     asyncio.get_event_loop().create_task(_daily_market_scan_job())
+    asyncio.get_event_loop().create_task(_daily_finance_news_job())
+
+
+async def _daily_finance_news_job():
+    """每日 17:00 抓取財經熱門新聞 → Telegram 發送 → AI 分析記錄。"""
+    import asyncio
+    from datetime import datetime, timedelta
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+
+    while True:
+        now = datetime.now()
+        target = now.replace(hour=17, minute=0, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+        wait_seconds = (target - now).total_seconds()
+        _logger.info(f"Finance news job: next run at {target} (wait {wait_seconds:.0f}s)")
+        await asyncio.sleep(wait_seconds)
+
+        try:
+            from src.services.finance_news import run_daily_finance_news
+            result = run_daily_finance_news()
+            _logger.info(
+                f"Finance news job done: {result['news_count']} news, "
+                f"telegram={'✓' if result['telegram_sent'] else '✗'}, "
+                f"ai={'✓' if result['ai_saved'] else '✗'}"
+            )
+        except Exception as e:
+            _logger.error(f"Finance news job error: {e}")
 
 
 async def _daily_rank_job():
