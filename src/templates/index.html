@@ -1549,6 +1549,7 @@ async function loadHot(type='active'){
         const r=await fetch(`/api/hot-stocks?type=${type}`);
         const stocks=await r.json();
         if(!stocks.length){p.innerHTML='<div class="loading">無資料</div>';return;}
+        _scanResultCodes=stocks.map(s=>s.code);
         p.innerHTML=stocks.map(s=>`<div class="stock-item" onclick="document.getElementById('searchInput').value='${s.code}';loadStock('${s.code}')">
             <div class="info"><span class="rank">#${s.rank}</span><span class="code">${s.code}</span><span class="name">${s.name}</span></div>
         </div>`).join('');
@@ -1578,6 +1579,7 @@ async function loadRank(direction='up',market='all',histDate){
     const r=await fetch(url);
     const stocks=await r.json();
     if(!stocks.length){p.innerHTML='<div class="loading">無資料</div>';return;}
+    _scanResultCodes=stocks.map(s=>s.code);
     p.innerHTML=stocks.map((s,i)=>`<div class="stock-item" onclick="document.getElementById('searchInput').value='${s.code}';loadStock('${s.code}')">
         <div class="info"><span class="rank">#${s.rank||i+1}</span><span class="code">${s.code}</span><span class="name">${s.name}</span></div>
         <span style="color:${direction==='up'?'#ef5350':'#26a69a'};font-size:12px;font-weight:600">${s.change_pct}</span>
