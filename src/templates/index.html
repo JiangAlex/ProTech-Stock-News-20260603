@@ -989,12 +989,42 @@ async function toggleWatch(){
     if(exists){await fetch(U(`/api/watchlist/${currentCode}`),{method:'DELETE'});}
     else{
         const groups=[...new Set([...allGroups,...list.map(s=>s.group_name||'預設'),'預設'])];
-        const g=prompt(`加入分組：\n${groups.map((n,i)=>`${i+1}. ${n}`).join('\n')}\n\n輸入分組名稱（或直接 Enter 用「預設」）`,'預設');
-        if(g===null)return;
-        const groupName=g||'預設';
+        const selected=await showGroupSelectDialog(groups);
+        if(selected===null)return;
+        const groupName=selected||'預設';
         await fetch(U(`/api/watchlist/${currentCode}?name=${encodeURIComponent(window._sm?.[currentCode]||'')}&group=${encodeURIComponent(groupName)}`),{method:'POST'});
     }
     loadWatchlist(); updateWatchBtn();
+}
+function showGroupSelectDialog(groups){
+    return new Promise(resolve=>{
+        const overlay=document.createElement('div');
+        overlay.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
+        const dialog=document.createElement('div');
+        dialog.style.cssText='background:#1a1d27;border:1px solid #3a3d48;border-radius:8px;padding:16px 20px;min-width:250px;color:#e1e5ea;';
+        dialog.innerHTML=`
+            <div style="font-size:13px;font-weight:bold;margin-bottom:12px;">加入自選 — 選擇分組</div>
+            <select id="_groupSelect" style="width:100%;padding:6px 8px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;margin-bottom:8px;">
+                ${groups.map(g=>`<option value="${g}">${g}</option>`).join('')}
+            </select>
+            <div style="margin-bottom:12px;">
+                <input id="_groupNew" placeholder="或輸入新分組名稱" style="width:100%;padding:6px 8px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:12px;box-sizing:border-box;">
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button id="_groupCancel" class="btn btn-s" style="padding:4px 12px;font-size:11px;">取消</button>
+                <button id="_groupOk" class="btn btn-p" style="padding:4px 12px;font-size:11px;">確定</button>
+            </div>
+        `;
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
+        const sel=dialog.querySelector('#_groupSelect');
+        const inp=dialog.querySelector('#_groupNew');
+        const cleanup=()=>document.body.removeChild(overlay);
+        dialog.querySelector('#_groupCancel').onclick=()=>{cleanup();resolve(null);};
+        dialog.querySelector('#_groupOk').onclick=()=>{cleanup();resolve(inp.value.trim()||sel.value);};
+        overlay.onclick=(e)=>{if(e.target===overlay){cleanup();resolve(null);}};
+        inp.addEventListener('keydown',e=>{if(e.key==='Enter'){cleanup();resolve(inp.value.trim()||sel.value);}});
+    });
 }
 async function delWatch(code){await fetch(U(`/api/watchlist/${code}`),{method:'DELETE'});loadWatchlist();}
 async function updateWatchBtn(){
