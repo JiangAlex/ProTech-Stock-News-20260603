@@ -236,7 +236,7 @@ AI 分析單一股票時，自動從 `daily_indicators` 撈同 `industry` 的股
 
 > 實作日期：2026-08-03
 
-### 5.1 每日財經新聞（PM 5:00）
+### 5.1 每日財經新聞（每小時抓取 + PM 5:00 AI 分析）
 
 **新增 `src/services/finance_news.py`**
 
@@ -248,12 +248,24 @@ AI 分析單一股票時，自動從 `daily_indicators` 撈同 `industry` 的股
 | CMoney (替代) | CMoney 需登入，改用鉅亨 `tw_stock_news` 替代 |
 
 **執行流程**：
-1. 抓取三大來源，去重取 10 條熱門話題
-2. 格式化 Telegram HTML 訊息 → 發送
-3. MiniMax AI 產生盤後分析摘要 → 發送
-4. 新聞列表 + AI 分析合併存入 `watchlist_notes`（stock_code=`NEWS`, user_id=`shared`）
 
-**排程**：`_daily_finance_news_job()` — 每日 17:00
+1. **每小時整點**（`run_hourly_news_collect`）：
+   - 抓取三大來源最新 10 條新聞
+   - 與今天已累積的標題比對（前 15 字模糊比對）
+   - 新的疊加至「📰 每日財經熱門話題 — YYYY/MM/DD」備註
+   - 重複的跳過不加入
+
+2. **每日 17:00**（`run_daily_ai_analysis`）：
+   - 讀取今天累積的所有新聞標題
+   - MiniMax AI 產生盤後分析摘要
+   - 存入「🤖 AI 盤後分析 — YYYY/MM/DD」備註（獨立一筆）
+   - Telegram 發送新聞列表 + AI 分析（兩則訊息）
+
+**儲存方式**：兩筆獨立 note（stock_code=`NEWS`, user_id=`shared`）
+- `📰 每日財經熱門話題 — 2026/08/03`（持續疊加）
+- `🤖 AI 盤後分析 — 2026/08/03`（17:00 產生一次）
+
+**排程**：`_daily_finance_news_job()` — 每小時整點觸發，17:00 額外執行 AI 分析
 
 ### 5.2 每週自選股 AI 分析（週日 18:00）
 
@@ -309,9 +321,10 @@ src/services/
 |------|------|------|
 | 每日 07:00 | 美股指數更新 | `us_index_service` |
 | 每日 09:00-13:30 每分鐘 | 即時警示 | `alert_engine` |
-| **每日 17:00** | **財經新聞 + AI 分析 + Telegram** | **`finance_news`** |
+| **每小時整點** | **財經新聞抓取（疊加去重）** | **`finance_news`** |
+| **每日 17:00** | **AI 盤後分析 + Telegram** | **`finance_news`** |
 | 每日 17:00 | 漲跌幅排行存檔 | `yahoo_service` |
 | 每日 18:00 | 台灣加權指數更新 | `us_index_service` |
 | 每日 18:00 | 警示引擎 | `alert_engine` |
 | 每日 18:00 | 全市場掃描 | `market_scan` |
-| **週日 18:00** | **週報摘要 + 自選股 AI 分析** | **`news_digest` + `weekly_analysis`** |
+| **週日 18:00** | **週報摘要 + 自選股&指數 AI 分析** | **`news_digest` + `weekly_analysis`** |
