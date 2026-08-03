@@ -325,28 +325,35 @@ def run_daily_finance_news() -> dict:
     else:
         logger.error("Failed to send finance news Telegram message")
 
-    # Step 3: AI 分析 & 記錄
+    # Step 3: 記錄新聞列表 & AI 分析（分兩筆存入）
+    today_str = date.today().isoformat()
+    today_display = date.today().strftime('%Y/%m/%d')
+
+    # 3a: 新聞列表存入
+    news_content = "\n".join(f"{i}. {item['title']}  [{item['source']}]" for i, item in enumerate(news_items, 1))
+    add_note(
+        stock_code="NEWS",
+        content=news_content,
+        user_id="shared",
+        news_date=today_str,
+        title=f"📰 每日財經熱門話題 — {today_display}",
+    )
+
+    # 3b: AI 分析存入
     analysis = analyze_finance_news_ai(news_items)
     if analysis:
-        today_str = date.today().isoformat()
-        title = f"📰 每日財經新聞分析 — {date.today().strftime('%Y/%m/%d')}"
-        # 組合新聞列表 + AI 分析
-        full_content = "【今日熱門新聞】\n"
-        full_content += "\n".join(f"{i}. {item['title']}" for i, item in enumerate(news_items, 1))
-        full_content += f"\n\n【AI 分析】\n{analysis}"
-
-        note_id = add_note(
+        add_note(
             stock_code="NEWS",
-            content=full_content,
+            content=analysis,
             user_id="shared",
             news_date=today_str,
-            title=title,
+            title=f"🤖 AI 盤後分析 — {today_display}",
         )
         result["ai_saved"] = True
-        logger.info(f"Finance news AI analysis saved: note_id={note_id}")
+        logger.info("Finance news + AI analysis saved as 2 notes")
 
         # 也發送 AI 分析到 Telegram
-        ai_msg = f"🤖 <b>AI 盤後分析</b> — {date.today().strftime('%Y/%m/%d')}\n\n{analysis}"
+        ai_msg = f"🤖 <b>AI 盤後分析</b> — {today_display}\n\n{analysis}"
         send_telegram_message(bot_token, chat_id, ai_msg)
     else:
         logger.warning("AI analysis returned empty, skipped saving")
