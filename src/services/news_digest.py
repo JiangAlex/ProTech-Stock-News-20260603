@@ -35,19 +35,36 @@ def generate_weekly_digest(target_date: date = None) -> dict | None:
         logger.info(f"No news notes found for week {week_start} ~ {week_end}")
         return None
 
-    # Build context from notes
-    context_parts = []
+    # Build context from notes — evenly sample across all days
+    # Group by date first
+    from collections import defaultdict
+    date_groups = defaultdict(list)
     for n in notes:
         content = (n.get("content") or "").strip()
         if content and content != "(圖片)" and content != "⏳ 分析中...":
             news_date = n.get("news_date", "")
-            context_parts.append(f"[{news_date}] {content[:500]}")
+            date_groups[news_date].append(f"[{news_date}] {content[:500]}")
 
-    if not context_parts:
+    if not date_groups:
         logger.info(f"No text content in news notes for week {week_start} ~ {week_end}")
         return None
 
-    context_text = "\n\n---\n".join(context_parts[:30])  # Limit to 30 notes
+    # Evenly distribute 30 slots across days
+    max_total = 30
+    sorted_dates = sorted(date_groups.keys())
+    per_day = max(1, max_total // len(sorted_dates))
+    context_parts = []
+    for d in sorted_dates:
+        context_parts.extend(date_groups[d][:per_day])
+    # If still under limit, add remaining
+    if len(context_parts) < max_total:
+        for d in sorted_dates:
+            for item in date_groups[d][per_day:]:
+                if len(context_parts) >= max_total:
+                    break
+                context_parts.append(item)
+
+    context_text = "\n\n---\n".join(context_parts[:max_total])
 
     # Call MiniMax AI to generate digest
     api_key = os.getenv("MINIMAX_API_KEY", "")
