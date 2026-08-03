@@ -201,8 +201,13 @@ _triggered_alerts = []
 
 
 async def _daily_alert_job():
+    """Daily alert check. Retry every 10 minutes until 21:00 if K-line data not ready."""
     import asyncio
-    from datetime import datetime, timedelta
+    from datetime import datetime, date, timedelta
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+    RETRY_INTERVAL = 600  # 10 minutes
+    DEADLINE_HOUR = 21
     while True:
         # Read run_time from settings (default 18:00)
         settings = get_alert_settings("default")
@@ -216,29 +221,56 @@ async def _daily_alert_job():
         if now >= target:
             target += timedelta(days=1)
         await asyncio.sleep((target - now).total_seconds())
-        # Run alert engine
-        try:
-            from src.services.alert_engine import run_alert_check
-            from src.services.telegram_service import send_telegram_message
-            results = run_alert_check()
-            if results:
-                # Group by user for Telegram
-                user_msgs = {}
-                for r in results:
-                    _triggered_alerts.append(r)
-                    uid = r["user_id"]
-                    if uid not in user_msgs:
-                        user_msgs[uid] = []
-                    user_msgs[uid].append(r["message"])
-                # Send Telegram per user
-                for uid, msgs in user_msgs.items():
-                    s = get_alert_settings(uid)
-                    if s.get("telegram_bot_token") and s.get("telegram_chat_id"):
-                        text = "🔔 <b>ProTech 警示通知</b>\n\n" + "\n".join(msgs)
-                        send_telegram_message(s["telegram_bot_token"], s["telegram_chat_id"], text)
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(f"Alert job error: {e}")
+
+        # Retry loop: wait for today's K-line data before running alerts
+        while True:
+            try:
+                from src.services.market_scan import is_trading_day
+                today = date.today()
+
+                # Weekend: definitely not a trading day
+                if today.weekday() >= 5:
+                    _logger.info("Alert job: weekend, skipping")
+                    break
+
+                # Check if K-line data is available
+                if not is_trading_day(today):
+                    now = datetime.now()
+                    if now.hour >= DEADLINE_HOUR:
+                        _logger.warning("Alert job: no K-line data by 21:00, giving up for today")
+                        break
+                    _logger.info("Alert job: K-line data not ready, retrying in 10 min")
+                    await asyncio.sleep(RETRY_INTERVAL)
+                    continue
+
+                # K-line data is available, run alerts
+                from src.services.alert_engine import run_alert_check
+                from src.services.telegram_service import send_telegram_message
+                results = run_alert_check()
+                if results:
+                    # Group by user for Telegram
+                    user_msgs = {}
+                    for r in results:
+                        _triggered_alerts.append(r)
+                        uid = r["user_id"]
+                        if uid not in user_msgs:
+                            user_msgs[uid] = []
+                        user_msgs[uid].append(r["message"])
+                    # Send Telegram per user
+                    for uid, msgs in user_msgs.items():
+                        s = get_alert_settings(uid)
+                        if s.get("telegram_bot_token") and s.get("telegram_chat_id"):
+                            text = "🔔 <b>ProTech 警示通知</b>\n\n" + "\n".join(msgs)
+                            send_telegram_message(s["telegram_bot_token"], s["telegram_chat_id"], text)
+                _logger.info(f"Alert job completed: {len(results)} alerts triggered")
+                break  # Success, exit retry loop
+            except Exception as e:
+                _logger.error(f"Alert job error: {e}")
+                now = datetime.now()
+                if now.hour >= DEADLINE_HOUR:
+                    _logger.warning("Alert job: error persists, giving up for today")
+                    break
+                await asyncio.sleep(RETRY_INTERVAL)
 
 
 @app.get("/api/alerts/triggered")
@@ -289,26 +321,45 @@ async def _daily_twii_job():
 
 
 async def _daily_market_scan_job():
-    """Compute market indicators daily at 18:00 (only on trading days)."""
+    """Compute market indicators daily at 18:00 (only on trading days).
+
+    Retry every 10 minutes until 21:00 if no data available.
+    """
     import asyncio
     from datetime import datetime, timedelta
     import logging as _logging
     _logger = _logging.getLogger(__name__)
+    RETRY_INTERVAL = 600  # 10 minutes
+    DEADLINE_HOUR = 21
     while True:
         now = datetime.now()
         target = now.replace(hour=18, minute=0, second=0, microsecond=0)
         if now >= target:
             target += timedelta(days=1)
         await asyncio.sleep((target - now).total_seconds())
-        try:
-            from src.services.market_scan import run_daily_scan
-            count = run_daily_scan()
-            if count > 0:
-                _logger.info(f"Market scan completed: {count} stocks")
-            else:
-                _logger.info("Market scan skipped (not a trading day or no data)")
-        except Exception as e:
-            _logger.error(f"Market scan job error: {e}")
+
+        # Retry loop: try until success or 21:00
+        while True:
+            try:
+                from src.services.market_scan import run_daily_scan
+                count = run_daily_scan()
+                if count > 0:
+                    _logger.info(f"Market scan completed: {count} stocks")
+                    break  # Success, exit retry loop
+                else:
+                    now = datetime.now()
+                    if now.hour >= DEADLINE_HOUR:
+                        _logger.warning("Market scan: no data by 21:00, giving up for today")
+                        break
+                    _logger.info(f"Market scan: no data yet, retrying in 10 min (deadline 21:00)")
+                    await asyncio.sleep(RETRY_INTERVAL)
+            except Exception as e:
+                _logger.error(f"Market scan job error: {e}")
+                now = datetime.now()
+                if now.hour >= DEADLINE_HOUR:
+                    _logger.warning("Market scan: error persists, giving up for today")
+                    break
+                await asyncio.sleep(RETRY_INTERVAL)
 
 
 async def _realtime_alert_job():

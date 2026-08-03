@@ -989,8 +989,10 @@ async function toggleWatch(){
     if(exists){await fetch(U(`/api/watchlist/${currentCode}`),{method:'DELETE'});}
     else{
         const groups=[...new Set([...allGroups,...list.map(s=>s.group_name||'預設'),'預設'])];
-        const g=prompt(`加入分組：\n${groups.map((n,i)=>`${i+1}. ${n}`).join('\n')}\n\n輸入分組名稱（或直接 Enter 用「預設」）`,'預設')||'預設';
-        await fetch(U(`/api/watchlist/${currentCode}?name=${encodeURIComponent(window._sm?.[currentCode]||'')}&group=${encodeURIComponent(g)}`),{method:'POST'});
+        const g=prompt(`加入分組：\n${groups.map((n,i)=>`${i+1}. ${n}`).join('\n')}\n\n輸入分組名稱（或直接 Enter 用「預設」）`,'預設');
+        if(g===null)return;
+        const groupName=g||'預設';
+        await fetch(U(`/api/watchlist/${currentCode}?name=${encodeURIComponent(window._sm?.[currentCode]||'')}&group=${encodeURIComponent(groupName)}`),{method:'POST'});
     }
     loadWatchlist(); updateWatchBtn();
 }
