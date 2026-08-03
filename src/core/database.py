@@ -631,7 +631,7 @@ def get_week_news_notes(start_date, end_date, user_id=None):
         cur = conn.cursor(cursor_factory=RealDictCursor)
         if user_id:
             cur.execute("""
-                SELECT id, content, news_date, created_at
+                SELECT id, content, news_date, title, created_at
                 FROM watchlist_notes
                 WHERE stock_code = 'NEWS' AND user_id = %s
                   AND (news_date >= %s AND news_date <= %s)
@@ -639,7 +639,7 @@ def get_week_news_notes(start_date, end_date, user_id=None):
             """, (user_id, start_date, end_date))
         else:
             cur.execute("""
-                SELECT id, content, news_date, created_at
+                SELECT id, content, news_date, title, created_at
                 FROM watchlist_notes
                 WHERE stock_code = 'NEWS'
                   AND (news_date >= %s AND news_date <= %s)

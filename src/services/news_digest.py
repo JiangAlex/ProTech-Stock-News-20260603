@@ -36,34 +36,37 @@ def generate_weekly_digest(target_date: date = None) -> dict | None:
         return None
 
     # Build context from notes — evenly sample across all days
-    # Group by date first
+    # Group by date first, separating daily finance analysis from regular notes
     from collections import defaultdict
     date_groups = defaultdict(list)
+    date_analysis = defaultdict(list)  # 每日財經新聞分析 (1 per day)
     for n in notes:
         content = (n.get("content") or "").strip()
         if content and content != "(圖片)" and content != "⏳ 分析中...":
             news_date = n.get("news_date", "")
-            date_groups[news_date].append(f"[{news_date}] {content[:500]}")
+            title = (n.get("title") or "")
+            if "每日財經新聞分析" in title:
+                date_analysis[news_date].append(f"[{news_date}] 【每日財經分析】{content[:800]}")
+            else:
+                date_groups[news_date].append(f"[{news_date}] {content[:500]}")
 
-    if not date_groups:
+    if not date_groups and not date_analysis:
         logger.info(f"No text content in news notes for week {week_start} ~ {week_end}")
         return None
 
-    # Evenly distribute 30 slots across days
-    max_total = 30
-    sorted_dates = sorted(date_groups.keys())
-    per_day = max(1, max_total // len(sorted_dates))
+    # Evenly distribute: 5 regular notes + 1 daily analysis per day = 6 per day
+    sorted_dates = sorted(set(list(date_groups.keys()) + list(date_analysis.keys())))
+    per_day = 5
     context_parts = []
     for d in sorted_dates:
-        context_parts.extend(date_groups[d][:per_day])
-    # If still under limit, add remaining
-    if len(context_parts) < max_total:
-        for d in sorted_dates:
-            for item in date_groups[d][per_day:]:
-                if len(context_parts) >= max_total:
-                    break
-                context_parts.append(item)
+        # Add regular notes (up to 5 per day)
+        context_parts.extend(date_groups.get(d, [])[:per_day])
+        # Add daily finance analysis (1 per day)
+        if d in date_analysis:
+            context_parts.append(date_analysis[d][0])
 
+    # Cap at max_total (6 per day × 7 days = 42 max)
+    max_total = 42
     context_text = "\n\n---\n".join(context_parts[:max_total])
 
     # Call MiniMax AI to generate digest
