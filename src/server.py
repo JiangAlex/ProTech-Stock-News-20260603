@@ -770,7 +770,7 @@ def api_market_scan(
         cur.execute(count_sql, params[:-1])  # exclude limit
         total = cur.fetchone()["count"]
 
-        return {"date": latest.isoformat(), "results": results, "total": total}
+        return {"date": latest.isoformat() if hasattr(latest, 'isoformat') else str(latest), "results": results, "total": total}
     finally:
         conn.close()
 
