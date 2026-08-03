@@ -229,3 +229,89 @@ AI 分析單一股票時，自動從 `daily_indicators` 撈同 `industry` 的股
 8. 前端：全市場掃描篩選器 UI
 9. AI 分析自動帶入同產業比較
 10. AI 搜尋框支援跨股票問答
+
+---
+
+## 五、每日財經新聞排程 + 每週自選股 AI 分析
+
+> 實作日期：2026-08-03
+
+### 5.1 每日財經新聞（PM 5:00）
+
+**新增 `src/services/finance_news.py`**
+
+| 功能 | 說明 |
+|------|------|
+| 鉅亨網 (Anue) 即時頭條 | JSON API: `api.cnyes.com/media/api/v1/newslist/category/headline` |
+| 鉅亨網 產業分析 | JSON API: `api.cnyes.com/media/api/v1/newslist/category/tw_stock` |
+| Yahoo奇摩股市 | HTML scraping: `tw.stock.yahoo.com/news` |
+| CMoney (替代) | CMoney 需登入，改用鉅亨 `tw_stock_news` 替代 |
+
+**執行流程**：
+1. 抓取三大來源，去重取 10 條熱門話題
+2. 格式化 Telegram HTML 訊息 → 發送
+3. MiniMax AI 產生盤後分析摘要 → 發送
+4. 新聞列表 + AI 分析合併存入 `watchlist_notes`（stock_code=`NEWS`, user_id=`shared`）
+
+**排程**：`_daily_finance_news_job()` — 每日 17:00
+
+### 5.2 每週自選股 AI 分析（週日 18:00）
+
+**新增 `src/services/weekly_analysis.py`**
+
+| 功能 | 說明 |
+|------|------|
+| 取得所有自選股 | 跨使用者去重（排除指數如 TWII/SOX） |
+| 查詢歷史分析 | 過去 3 次 AI 技術分析記錄 |
+| AI 週度分析 | 含歷史對比（趨勢追蹤、指標變化、操作建議） |
+| 存入備註 | title=`🤖 AI 技術分析 (週報)`, user_id=`shared` |
+| Telegram 彙整 | 每檔股票摘要一行 |
+
+**AI 分析特色**：
+- Prompt 包含「過去 3 次分析摘要」→ AI 會對比前次結論
+- 輸出表格對比（上次 vs 本週）股價/RSI/MACD/均線
+- 判斷趨勢是否延續或轉折
+- 每檔間隔 2 秒 rate limiting
+
+**排程**：整合在 `_weekly_news_digest_job()` — 週日 18:00，在週報摘要之後執行
+
+### 5.3 週報取樣邏輯修正
+
+**問題**：原始邏輯 `context_parts[:30]` 按日期 ASC 排序只取前 30 筆，導致整週只取到首日新聞。
+
+**修正**：
+- 每天平均取 5 筆一般新聞 + 1 筆每日財經分析 = 6 筆/天
+- `get_week_news_notes` 查詢加入 `title` 欄位用於辨識
+- 最大上限 42 筆（7天 × 6筆）
+
+### 5.4 社群爆紅榜/排行榜 ▲▼ 導航修正
+
+**問題**：從爆紅榜/排行榜點入個股後，▲▼ 無法切換上下檔。
+
+**修正**：`loadHot()` 和 `loadRank()` 載入結果後，將 codes 存入 `_scanResultCodes`，讓 `navWatchStock()` 可在該清單中導航。
+
+### 5.5 專案結構更新
+
+```
+src/services/
+├── finance_news.py      # 每日財經新聞爬蟲 + Telegram + AI 分析（NEW）
+├── weekly_analysis.py   # 每週自選股批次 AI 分析（NEW）
+├── news_digest.py       # 週報摘要（已修正取樣邏輯）
+├── kline_analysis.py    # K線 AI 技術分析
+├── market_scan.py       # 全市場掃描
+├── telegram_service.py  # Telegram 通知
+├── ...
+```
+
+### 5.6 排程總覽
+
+| 時間 | 任務 | 模組 |
+|------|------|------|
+| 每日 07:00 | 美股指數更新 | `us_index_service` |
+| 每日 09:00-13:30 每分鐘 | 即時警示 | `alert_engine` |
+| **每日 17:00** | **財經新聞 + AI 分析 + Telegram** | **`finance_news`** |
+| 每日 17:00 | 漲跌幅排行存檔 | `yahoo_service` |
+| 每日 18:00 | 台灣加權指數更新 | `us_index_service` |
+| 每日 18:00 | 警示引擎 | `alert_engine` |
+| 每日 18:00 | 全市場掃描 | `market_scan` |
+| **週日 18:00** | **週報摘要 + 自選股 AI 分析** | **`news_digest` + `weekly_analysis`** |
