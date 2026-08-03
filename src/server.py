@@ -419,6 +419,17 @@ async def _weekly_news_digest_job():
         except Exception as e:
             _logger.error(f"Weekly digest job error: {e}")
 
+        # Run weekly watchlist AI analysis (after digest)
+        try:
+            from src.services.weekly_analysis import run_weekly_watchlist_analysis
+            wa_result = run_weekly_watchlist_analysis()
+            _logger.info(
+                f"Weekly watchlist analysis done: {wa_result['analyzed']}/{wa_result['total']} stocks, "
+                f"telegram={'✓' if wa_result['telegram_sent'] else '✗'}"
+            )
+        except Exception as e:
+            _logger.error(f"Weekly watchlist analysis error: {e}")
+
 
 # --- US Index API ---
 
