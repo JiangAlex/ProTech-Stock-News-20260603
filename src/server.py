@@ -469,26 +469,40 @@ def api_kline(code: str, period: str = Query("daily"), days: int = Query(120, le
 def api_ai_analysis(code: str, period: str = Query("daily"), days: int = Query(120, le=500),
                     user: str = Query("default")):
     """AI technical analysis for a stock's K-line data."""
+    US_INDICES = {"TWII", "DJI", "IXIC", "SOX"}
+
     # 1. Get K-line data
-    if period == "weekly":
-        kline_data = get_weekly_kline(code, days)
-    elif period == "monthly":
-        kline_data = get_monthly_kline(code, days)
+    if code in US_INDICES:
+        from src.services.us_index_service import get_us_index_kline, get_us_index_weekly, get_us_index_monthly
+        if period == "weekly":
+            kline_data = get_us_index_weekly(code, days)
+        elif period == "monthly":
+            kline_data = get_us_index_monthly(code, days)
+        else:
+            kline_data = get_us_index_kline(code, days)
     else:
-        kline_data = get_daily_kline(code, days)
+        if period == "weekly":
+            kline_data = get_weekly_kline(code, days)
+        elif period == "monthly":
+            kline_data = get_monthly_kline(code, days)
+        else:
+            kline_data = get_daily_kline(code, days)
 
     if not kline_data or len(kline_data) < 5:
         return {"error": "K線資料不足，無法分析"}
 
     # 2. Get stock name
-    stock_name = ""
-    if not hasattr(api_ai_analysis, '_stock_map'):
-        try:
-            stocks = get_all_stocks()
-            api_ai_analysis._stock_map = {s["code"]: s["name"] for s in stocks}
-        except Exception:
-            api_ai_analysis._stock_map = {}
-    stock_name = api_ai_analysis._stock_map.get(code, code)
+    INDEX_NAMES = {"TWII": "台灣加權指數", "DJI": "道瓊工業指數", "IXIC": "那斯達克綜合指數", "SOX": "費城半導體指數"}
+    if code in INDEX_NAMES:
+        stock_name = INDEX_NAMES[code]
+    else:
+        if not hasattr(api_ai_analysis, '_stock_map'):
+            try:
+                stocks = get_all_stocks()
+                api_ai_analysis._stock_map = {s["code"]: s["name"] for s in stocks}
+            except Exception:
+                api_ai_analysis._stock_map = {}
+        stock_name = api_ai_analysis._stock_map.get(code, code)
 
     # 3. Run analysis
     result = analyze_kline(code, stock_name, kline_data, period, user)
