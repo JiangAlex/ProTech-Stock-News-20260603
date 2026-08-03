@@ -338,7 +338,7 @@ def run_daily_finance_news() -> dict:
         note_id = add_note(
             stock_code="NEWS",
             content=full_content,
-            user_id="system",
+            user_id="shared",
             news_date=today_str,
             title=title,
         )
