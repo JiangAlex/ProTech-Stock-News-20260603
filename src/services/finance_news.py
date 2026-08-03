@@ -290,56 +290,132 @@ def analyze_finance_news_ai(news_items: list[dict]) -> str | None:
         return None
 
 
-def run_daily_finance_news() -> dict:
-    """
-    執行每日財經新聞排程任務：
-    1. 抓取熱門新聞 10 條
-    2. 發送 Telegram
-    3. AI 分析並記錄到資料庫
+def _get_today_news_note() -> tuple[int | None, list[str]]:
+    """取得今天的「每日財經熱門話題」備註 id 和已有的標題列表。"""
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    from src.core.pg_client import DB_CONFIG
 
-    Returns: {"news_count": int, "telegram_sent": bool, "ai_saved": bool}
+    today_str = date.today().isoformat()
+    today_display = date.today().strftime('%Y/%m/%d')
+    target_title = f"📰 每日財經熱門話題 — {today_display}"
+
+    conn = psycopg2.connect(**DB_CONFIG)
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            "SELECT id, content FROM watchlist_notes WHERE stock_code='NEWS' AND user_id='shared' AND title=%s AND news_date=%s",
+            (target_title, today_str)
+        )
+        row = cur.fetchone()
+        if row:
+            existing_titles = [line.split(". ", 1)[1].rsplit("  [", 1)[0] if ". " in line else line
+                               for line in (row["content"] or "").strip().split("\n") if line.strip()]
+            return row["id"], existing_titles
+        return None, []
+    finally:
+        conn.close()
+
+
+def run_hourly_news_collect() -> int:
+    """
+    每小時抓取新聞，疊加至今天的「每日財經熱門話題」備註，重複的跳過。
+    Returns: 新增的新聞條數。
+    """
+    import psycopg2
+    from src.core.pg_client import DB_CONFIG
+    from src.core.database import add_note
+
+    # 抓取最新新聞
+    news_items = collect_finance_news(max_items=10)
+    if not news_items:
+        return 0
+
+    today_str = date.today().isoformat()
+    today_display = date.today().strftime('%Y/%m/%d')
+    target_title = f"📰 每日財經熱門話題 — {today_display}"
+
+    # 取得已有的備註
+    note_id, existing_titles = _get_today_news_note()
+
+    # 去重：只加入新的
+    new_items = []
+    for item in news_items:
+        # 用前 15 字做模糊比對避免重複
+        title_prefix = item["title"][:15]
+        if not any(title_prefix in t for t in existing_titles):
+            new_items.append(item)
+
+    if not new_items:
+        logger.info("Hourly news: no new items to add")
+        return 0
+
+    # 組合新內容
+    all_titles = existing_titles.copy()
+    for item in new_items:
+        all_titles.append(item["title"])
+
+    # 重新編號
+    new_content = "\n".join(f"{i}. {t}  " for i, t in enumerate(all_titles, 1))
+
+    if note_id:
+        # 更新既有備註
+        conn = psycopg2.connect(**DB_CONFIG)
+        try:
+            cur = conn.cursor()
+            cur.execute("UPDATE watchlist_notes SET content=%s WHERE id=%s", (new_content, note_id))
+            conn.commit()
+        finally:
+            conn.close()
+    else:
+        # 建立新備註
+        add_note(
+            stock_code="NEWS",
+            content=new_content,
+            user_id="shared",
+            news_date=today_str,
+            title=target_title,
+        )
+
+    logger.info(f"Hourly news: added {len(new_items)} new items (total: {len(all_titles)})")
+    return len(new_items)
+
+
+def run_daily_ai_analysis() -> dict:
+    """
+    每日 17:00 執行：
+    1. 讀取今天累積的所有新聞標題
+    2. AI 盤後分析
+    3. 存入備註
+    4. Telegram 發送（新聞列表 + AI 分析）
+
+    Returns: {"telegram_sent": bool, "ai_saved": bool}
     """
     from src.services.telegram_service import send_telegram_message
     from src.core.database import add_note
 
-    result = {"news_count": 0, "telegram_sent": False, "ai_saved": False}
+    result = {"telegram_sent": False, "ai_saved": False}
 
-    # Step 1: 抓取新聞
-    news_items = collect_finance_news(max_items=10)
-    result["news_count"] = len(news_items)
-
-    if not news_items:
-        logger.warning("No finance news collected, skipping")
-        return result
-
-    logger.info(f"Collected {len(news_items)} finance news items")
-
-    # Step 2: 發送 Telegram
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
-    message = format_telegram_message(news_items)
-
-    if send_telegram_message(bot_token, chat_id, message):
-        result["telegram_sent"] = True
-        logger.info("Finance news Telegram message sent")
-    else:
-        logger.error("Failed to send finance news Telegram message")
-
-    # Step 3: 記錄新聞列表 & AI 分析（分兩筆存入）
     today_str = date.today().isoformat()
     today_display = date.today().strftime('%Y/%m/%d')
 
-    # 3a: 新聞列表存入
-    news_content = "\n".join(f"{i}. {item['title']}  [{item['source']}]" for i, item in enumerate(news_items, 1))
-    add_note(
-        stock_code="NEWS",
-        content=news_content,
-        user_id="shared",
-        news_date=today_str,
-        title=f"📰 每日財經熱門話題 — {today_display}",
-    )
+    # 讀取今天累積的新聞
+    note_id, existing_titles = _get_today_news_note()
+    if not existing_titles:
+        logger.warning("No news collected today, skipping AI analysis")
+        return result
 
-    # 3b: AI 分析存入
+    # 組成 news_items 格式給 AI 分析
+    news_items = [{"title": t, "source": "", "url": "", "category": ""} for t in existing_titles]
+
+    # 發送 Telegram — 新聞列表
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+    message = format_telegram_message(news_items)
+    if send_telegram_message(bot_token, chat_id, message):
+        result["telegram_sent"] = True
+
+    # AI 分析
     analysis = analyze_finance_news_ai(news_items)
     if analysis:
         add_note(
@@ -350,12 +426,20 @@ def run_daily_finance_news() -> dict:
             title=f"🤖 AI 盤後分析 — {today_display}",
         )
         result["ai_saved"] = True
-        logger.info("Finance news + AI analysis saved as 2 notes")
+        logger.info("Daily AI analysis saved")
 
-        # 也發送 AI 分析到 Telegram
+        # Telegram 發送 AI 分析
         ai_msg = f"🤖 <b>AI 盤後分析</b> — {today_display}\n\n{analysis}"
         send_telegram_message(bot_token, chat_id, ai_msg)
     else:
-        logger.warning("AI analysis returned empty, skipped saving")
+        logger.warning("AI analysis returned empty")
 
+    return result
+
+
+def run_daily_finance_news() -> dict:
+    """向後相容：手動觸發時同時執行抓取+分析。"""
+    count = run_hourly_news_collect()
+    result = run_daily_ai_analysis()
+    result["news_count"] = count
     return result

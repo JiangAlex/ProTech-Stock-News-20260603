@@ -78,7 +78,7 @@ def startup():
 
 
 async def _daily_finance_news_job():
-    """每日 17:00 抓取財經熱門新聞 → Telegram 發送 → AI 分析記錄。"""
+    """每小時抓取財經熱門新聞（疊加去重）+ 每日 17:00 AI 盤後分析 + Telegram。"""
     import asyncio
     from datetime import datetime, timedelta
     import logging as _logging
@@ -86,21 +86,24 @@ async def _daily_finance_news_job():
 
     while True:
         now = datetime.now()
-        target = now.replace(hour=17, minute=0, second=0, microsecond=0)
-        if now >= target:
-            target += timedelta(days=1)
-        wait_seconds = (target - now).total_seconds()
-        _logger.info(f"Finance news job: next run at {target} (wait {wait_seconds:.0f}s)")
-        await asyncio.sleep(wait_seconds)
+        # Next hour :00
+        next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+        await asyncio.sleep((next_hour - now).total_seconds())
 
         try:
-            from src.services.finance_news import run_daily_finance_news
-            result = run_daily_finance_news()
-            _logger.info(
-                f"Finance news job done: {result['news_count']} news, "
-                f"telegram={'✓' if result['telegram_sent'] else '✗'}, "
-                f"ai={'✓' if result['ai_saved'] else '✗'}"
-            )
+            from src.services.finance_news import run_hourly_news_collect, run_daily_ai_analysis
+            # Every hour: collect and accumulate news
+            count = run_hourly_news_collect()
+            _logger.info(f"Hourly news collect: {count} new items added")
+
+            # At 17:00: run AI analysis + Telegram
+            current = datetime.now()
+            if current.hour == 17:
+                result = run_daily_ai_analysis()
+                _logger.info(
+                    f"Daily AI analysis done: telegram={'✓' if result['telegram_sent'] else '✗'}, "
+                    f"ai={'✓' if result['ai_saved'] else '✗'}"
+                )
         except Exception as e:
             _logger.error(f"Finance news job error: {e}")
 
