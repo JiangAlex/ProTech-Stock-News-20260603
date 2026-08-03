@@ -131,7 +131,12 @@ def analyze_single_stock(stock_code: str, stock_name: str) -> str | None:
         return None
 
     # 1. Get K-line data
-    kline_data = get_daily_kline(stock_code, 120)
+    US_INDICES = {"TWII", "DJI", "IXIC", "SOX"}
+    if stock_code in US_INDICES:
+        from src.services.us_index_service import get_us_index_kline
+        kline_data = get_us_index_kline(stock_code, 120)
+    else:
+        kline_data = get_daily_kline(stock_code, 120)
     if not kline_data or len(kline_data) < 5:
         logger.warning(f"[{stock_code}] K線資料不足，跳過")
         return None
@@ -198,6 +203,18 @@ def run_weekly_watchlist_analysis() -> dict:
         if s["code"] not in seen_codes:
             seen_codes.add(s["code"])
             unique_stocks.append(s)
+
+    # Always include major indices
+    INDEX_LIST = [
+        {"code": "TWII", "name": "台灣加權指數", "user_id": "shared"},
+        {"code": "DJI", "name": "道瓊工業指數", "user_id": "shared"},
+        {"code": "IXIC", "name": "那斯達克綜合指數", "user_id": "shared"},
+        {"code": "SOX", "name": "費城半導體指數", "user_id": "shared"},
+    ]
+    for idx in INDEX_LIST:
+        if idx["code"] not in seen_codes:
+            seen_codes.add(idx["code"])
+            unique_stocks.insert(0, idx)  # indices first
 
     result["total"] = len(unique_stocks)
     if not unique_stocks:
