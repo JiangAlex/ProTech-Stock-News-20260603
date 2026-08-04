@@ -235,7 +235,7 @@ async def handle_message(message: dict):
         user_states[user_id] = {"action": "waiting_stock_code"}
         user_states[chat_id] = {"action": "waiting_stock_code"}
         send_message(chat_id, "📊 請輸入股票代號：",
-                     reply_markup={"force_reply": True, "selective": True})
+                     reply_markup=persistent_reply_keyboard())
         return
     elif text == "📋 自選股":
         await _cb_watchlist_entry(chat_id, None, user_id)
@@ -409,9 +409,9 @@ async def _cb_stock_entry(chat_id, message_id, user_id):
                       "📊 查股票 — 等待輸入代號...",
                       reply_markup=build_keyboard([[("🔙 取消", "menu")]]))
     # Send new message with ForceReply so bot can receive the reply in group chats
-    # (Group Privacy mode blocks plain messages but allows replies to bot)
+    # Send prompt while keeping persistent keyboard visible
     send_message(chat_id, "📊 請輸入股票代號：",
-                 reply_markup={"force_reply": True, "selective": True})
+                 reply_markup=persistent_reply_keyboard())
 
 
 async def _send_stock_chart(chat_id, code: str):
@@ -611,9 +611,9 @@ async def _cb_watchlist_note(chat_id, message_id, user_id, data: str):
 
         edit_message_text(chat_id, message_id, text,
                           reply_markup=build_keyboard([[("❌ 取消", f"wl_stock_{code}")]]))
-        # Send ForceReply so bot can receive reply in group chats
+        # Send prompt while keeping persistent keyboard visible
         send_message(chat_id, "💬 請輸入備註內容：",
-                     reply_markup={"force_reply": True, "selective": True})
+                     reply_markup=persistent_reply_keyboard())
     except Exception as e:
         logger.error(f"Watchlist note failed: {e}")
         edit_message_text(chat_id, message_id, f"❌ 載入失敗：{e}",
