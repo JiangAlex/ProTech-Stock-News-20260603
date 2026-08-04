@@ -630,8 +630,18 @@ def api_update_analysis_preferences(body: dict):
         custom_prompt=body.get("custom_prompt", ""),
         analysis_framework=body.get("analysis_framework", ""),
         ma_tangle_threshold=float(body.get("ma_tangle_threshold", 3.0)),
+        portfolio_framework=body.get("portfolio_framework", ""),
     )
     return {"ok": True}
+
+
+@app.post("/api/ai/portfolio-analysis")
+def api_portfolio_analysis(body: dict):
+    """AI 整體持股組合分析。"""
+    user = body.get("user", "default")
+    from src.services.portfolio_advisor import analyze_portfolio
+    result = analyze_portfolio(user_id=user)
+    return result
 
 
 @app.get("/api/market-scan")

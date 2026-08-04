@@ -162,10 +162,17 @@
                 </div>
             </div>
             <details style="margin:6px 0;" id="frameworkDetails" ontoggle="if(this.open){const ta=document.getElementById('prefFramework');if(!ta.value.trim())ta.value=DEFAULT_FRAMEWORK;ta.focus();}">
-                <summary style="cursor:pointer;color:#4fc3f7;font-size:11px;">📝 自訂分析框架</summary>
+                <summary style="cursor:pointer;color:#4fc3f7;font-size:11px;">📝 自訂分析框架（個股）</summary>
                 <div style="margin-top:4px;">
                     <textarea id="prefFramework" rows="7" style="width:100%;padding:4px 6px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;font-family:monospace;resize:vertical;"></textarea>
                     <div style="color:#6b7a8d;font-size:10px;margin-top:2px;">留空則使用預設框架。可自訂段落結構，AI 將依照此框架產生分析報告。</div>
+                </div>
+            </details>
+            <details style="margin:6px 0;" id="portfolioFrameworkDetails" ontoggle="if(this.open){const ta=document.getElementById('prefPortfolioFramework');if(!ta.value.trim())ta.value=DEFAULT_PORTFOLIO_FRAMEWORK;ta.focus();}">
+                <summary style="cursor:pointer;color:#81c784;font-size:11px;">📊 自訂分析框架（持股組合）</summary>
+                <div style="margin-top:4px;">
+                    <textarea id="prefPortfolioFramework" rows="7" style="width:100%;padding:4px 6px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;font-family:monospace;resize:vertical;"></textarea>
+                    <div style="color:#6b7a8d;font-size:10px;margin-top:2px;">留空則使用預設框架。AI 持股分析將依此框架產出組合層級報告。</div>
                 </div>
             </details>
             <button class="btn btn-s" onclick="saveAnalysisPrefs()" style="font-size:10px;">💾 儲存偏好</button>
@@ -199,6 +206,7 @@
                 <button class="btn btn-s" onclick="toggleFloatNotes()">📝 備註</button>
                 <button class="btn btn-s" onclick="openBacktest()">📊 回測</button>
                 <button class="btn btn-s" onclick="runAiAnalysis()" id="btnAiAnalysis" style="background:#1a3a4a;border-color:#4fc3f7;">🤖 AI分析</button>
+                <button class="btn btn-s" onclick="runPortfolioAnalysis()" id="btnPortfolioAnalysis" style="background:#1a3a2a;border-color:#81c784;">📊 持股分析</button>
                 <button class="btn btn-s" onclick="closeStock()">✕</button>
             </div>
         </div>
@@ -361,6 +369,7 @@ async function loadAnalysisPrefs(){
         document.getElementById('prefRisk').value=p.risk_tolerance||'';
         document.getElementById('prefCustom').value=p.custom_prompt||'';
         document.getElementById('prefFramework').value=p.analysis_framework||'';
+        document.getElementById('prefPortfolioFramework').value=p.portfolio_framework||'';
         document.getElementById('prefTangle').value=p.ma_tangle_threshold||3;
     }catch(e){}
 }
@@ -373,6 +382,7 @@ async function saveAnalysisPrefs(){
             risk_tolerance:document.getElementById('prefRisk').value,
             custom_prompt:document.getElementById('prefCustom').value,
             analysis_framework:document.getElementById('prefFramework').value,
+            portfolio_framework:document.getElementById('prefPortfolioFramework').value,
             ma_tangle_threshold:parseFloat(document.getElementById('prefTangle').value)||3,
         })});
         document.getElementById('prefSaveStatus').innerHTML='<span style="color:#26a69a;">✅ 已儲存</span>';
@@ -381,6 +391,7 @@ async function saveAnalysisPrefs(){
 }
 
 const DEFAULT_FRAMEWORK=`1. **趨勢判斷**：{根據均線排列、價格位置判斷上升/下降/盤整}\n2. **關鍵價位**：{找出支撐位與壓力位}\n3. **指標解讀**：{解讀 MACD/RSI/布林帶/量能}\n4. **型態分析**：{分析偵測到的K線型態意義}\n5. **綜合判斷**：{給出短線1-5日與中線5-20日操作方向}`;
+const DEFAULT_PORTFOLIO_FRAMEWORK=`1. **部位總覽**：{總成本/現值/未實現損益/報酬率}\n2. **產業集中度**：{各產業占比，是否過度集中某一產業}\n3. **個股強弱排序**：{依技術面排序，哪些轉強/轉弱}\n4. **風險提示**：{超買/跌破均線/虧損過大/量能異常的個股}\n5. **操作建議**：{加碼/減碼/停損/換股方向}`;
 
 function renderMASettings(){
     const c=document.getElementById('maSettings');
@@ -1315,6 +1326,9 @@ async function runAiAnalysis(){
     if(!currentCode)return;
     const panel=document.getElementById('aiAnalysisPanel');
     const content=document.getElementById('aiAnalysisContent');
+    const titleEl=panel.querySelector('span');
+    titleEl.textContent='🤖 AI 技術分析';
+    titleEl.style.color='#4fc3f7';
     panel.style.display='block';
     content.innerHTML='<div style="color:#4fc3f7;">🤖 AI 分析中（約 10-30 秒）...</div>';
     const btn=document.getElementById('btnAiAnalysis');
@@ -1426,6 +1440,77 @@ async function verifyAnalysis(noteId, verification){
         if(acc.total>0) el.innerHTML+=` <span style="color:#8b9dc3;margin-left:8px;">歷史正確率：${acc.accuracy}% (${acc.correct}/${acc.total})</span>`;
     }catch(e){
         document.getElementById('verifyStatus').innerHTML='<span style="color:#ef5350;">標記失敗</span>';
+    }
+}
+
+// --- Portfolio AI Analysis ---
+async function runPortfolioAnalysis(){
+    const panel=document.getElementById('aiAnalysisPanel');
+    const content=document.getElementById('aiAnalysisContent');
+    const titleEl=panel.querySelector('span');
+    panel.style.display='block';
+    titleEl.textContent='📊 AI 持股組合分析';
+    titleEl.style.color='#81c784';
+    content.innerHTML='<div style="color:#81c784;">📊 AI 持股分析中（約 15-45 秒）...</div>';
+    const btn=document.getElementById('btnPortfolioAnalysis');
+    btn.disabled=true;btn.style.opacity='0.5';
+    try{
+        const r=await fetch('/api/ai/portfolio-analysis',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:currentUser})});
+        const data=await r.json();
+        if(data.error){
+            content.innerHTML=`<div style="color:#ef5350;">❌ ${data.error}</div>`;
+            return;
+        }
+        let html='';
+        // Portfolio summary
+        const s=data.portfolio&&data.portfolio.summary;
+        if(s&&s.total_value){
+            const pnlColor=s.total_pnl>=0?'#26a69a':'#ef5350';
+            const pnlSign=s.total_pnl>=0?'+':'';
+            html+=`<div style="margin-bottom:8px;padding:8px;background:#0f1117;border-radius:4px;font-size:11px;">`;
+            html+=`<div style="margin-bottom:6px;display:flex;gap:16px;flex-wrap:wrap;">`;
+            html+=`<div><span style="color:#6b7a8d;">持股：</span><span style="color:#e1e5ea;">${s.stock_count} 檔</span></div>`;
+            html+=`<div><span style="color:#6b7a8d;">總成本：</span><span style="color:#e1e5ea;">${(s.total_cost/10000).toFixed(1)}萬</span></div>`;
+            html+=`<div><span style="color:#6b7a8d;">現值：</span><span style="color:#e1e5ea;">${(s.total_value/10000).toFixed(1)}萬</span></div>`;
+            html+=`<div><span style="color:#6b7a8d;">損益：</span><span style="color:${pnlColor};font-weight:600;">${pnlSign}${(s.total_pnl/10000).toFixed(1)}萬 (${pnlSign}${s.total_pnl_pct}%)</span></div>`;
+            html+=`</div>`;
+            // Industry distribution
+            if(s.industry_distribution&&Object.keys(s.industry_distribution).length){
+                html+=`<div style="margin-bottom:4px;"><span style="color:#6b7a8d;">產業分布：</span>`;
+                html+=Object.entries(s.industry_distribution).map(([k,v])=>`<span style="color:#8b9dc3;">${k}</span> <span style="color:#e1e5ea;">${v}%</span>`).join(' · ');
+                html+=`</div>`;
+            }
+            // Risk flags
+            if(s.risk_flags&&s.risk_flags.length){
+                html+=`<div style="color:#ffeb3b;font-size:10px;margin-top:4px;">⚠️ ${s.risk_flags.join(' | ')}</div>`;
+            }
+            html+=`</div>`;
+        }
+        // Holdings table
+        const holdings=data.portfolio&&data.portfolio.holdings;
+        if(holdings&&holdings.length){
+            html+=`<div style="margin-bottom:8px;max-height:150px;overflow-y:auto;">`;
+            html+=`<table style="width:100%;font-size:10px;border-collapse:collapse;">`;
+            html+=`<tr style="color:#6b7a8d;border-bottom:1px solid #2a2d38;"><th style="text-align:left;padding:2px 4px;">股票</th><th>張</th><th>成本</th><th>現價</th><th>損益%</th><th>MA</th><th>RSI</th></tr>`;
+            holdings.forEach(h=>{
+                const c=h.pnl_pct>=0?'#26a69a':'#ef5350';
+                const sign=h.pnl_pct>=0?'+':'';
+                html+=`<tr style="border-bottom:1px solid #1a1d28;"><td style="padding:2px 4px;color:#e1e5ea;cursor:pointer;" onclick="openStock('${h.code}')">${h.code} ${h.name}</td><td style="text-align:center;color:#8b9dc3;">${h.shares}</td><td style="text-align:center;color:#8b9dc3;">${h.avg_cost}</td><td style="text-align:center;color:#e1e5ea;">${h.current_price}</td><td style="text-align:center;color:${c};font-weight:600;">${sign}${h.pnl_pct}%</td><td style="text-align:center;color:#8b9dc3;font-size:9px;">${h.ma_arrangement||'-'}</td><td style="text-align:center;color:#8b9dc3;">${h.rsi14?h.rsi14.toFixed(0):'-'}</td></tr>`;
+            });
+            html+=`</table></div>`;
+        }
+        // AI Analysis text
+        if(data.analysis){
+            html+=`<div style="border-top:1px solid #2a2d38;padding-top:8px;margin-top:4px;">`;
+            html+=`<div style="font-size:11px;color:#81c784;margin-bottom:4px;font-weight:600;">💡 AI 組合分析</div>`;
+            html+=`<div style="font-size:12px;line-height:1.7;">${data.analysis.replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>`;
+            html+=`</div>`;
+        }
+        content.innerHTML=html;
+    }catch(e){
+        content.innerHTML=`<div style="color:#ef5350;">❌ 持股分析失敗：${e.message}</div>`;
+    }finally{
+        btn.disabled=false;btn.style.opacity='1';
     }
 }
 
