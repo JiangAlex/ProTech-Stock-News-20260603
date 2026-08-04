@@ -639,7 +639,7 @@ def run_daily_ai_analysis() -> dict:
     1. 讀取今天累積的所有新聞標題
     2. AI 盤後分析
     3. 存入備註
-    4. Telegram 發送（新聞列表 + AI 分析）
+    4. Telegram 發送 AI 盤後分析
 
     Returns: {"telegram_sent": bool, "ai_saved": bool}
     """
@@ -660,12 +660,8 @@ def run_daily_ai_analysis() -> dict:
     # 組成 news_items 格式給 AI 分析
     news_items = [{"title": t, "source": "", "url": "", "category": ""} for t in existing_titles]
 
-    # 發送 Telegram — 新聞列表
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
-    message = format_telegram_message(news_items)
-    if send_telegram_message(bot_token, chat_id, message):
-        result["telegram_sent"] = True
 
     # AI 分析
     analysis = analyze_finance_news_ai(news_items)
@@ -682,7 +678,8 @@ def run_daily_ai_analysis() -> dict:
 
         # Telegram 發送 AI 分析
         ai_msg = f"🤖 <b>AI 盤後分析</b> — {today_display}\n\n{analysis}"
-        send_telegram_message(bot_token, chat_id, ai_msg)
+        if send_telegram_message(bot_token, chat_id, ai_msg):
+            result["telegram_sent"] = True
     else:
         logger.warning("AI analysis returned empty")
 
