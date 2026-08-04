@@ -700,3 +700,50 @@ def get_discussions(limit: int = 50, offset: int = 0) -> list:
         return [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
+
+
+# --- Telegram User Binding ---
+
+def init_telegram_users_table():
+    """Create telegram_users table for Telegram-to-app user mapping."""
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS telegram_users (
+                telegram_id BIGINT PRIMARY KEY,
+                app_user TEXT NOT NULL,
+                telegram_username TEXT,
+                bound_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def bind_telegram_user(telegram_id: int, app_user: str, telegram_username: str = ""):
+    """Bind a Telegram user_id to an app username."""
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO telegram_users (telegram_id, app_user, telegram_username) "
+            "VALUES (%s, %s, %s) "
+            "ON CONFLICT (telegram_id) DO UPDATE SET app_user = %s, telegram_username = %s, bound_at = NOW()",
+            (telegram_id, app_user, telegram_username, app_user, telegram_username))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_bound_app_user(telegram_id: int) -> str:
+    """Look up app username for a Telegram user_id. Returns 'default' if not bound."""
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT app_user FROM telegram_users WHERE telegram_id = %s", (telegram_id,))
+        row = cur.fetchone()
+        return row[0] if row else "default"
+    finally:
+        conn.close()

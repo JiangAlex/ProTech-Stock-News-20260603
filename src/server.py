@@ -71,8 +71,9 @@ async def lifespan(app: FastAPI):
     background_tasks.append(asyncio.create_task(_daily_finance_news_job()))
     background_tasks.append(asyncio.create_task(_weekly_concept_update_job()))
     # Telegram Bot polling
-    from src.core.database import init_telegram_discussions_table
+    from src.core.database import init_telegram_discussions_table, init_telegram_users_table
     init_telegram_discussions_table()
+    init_telegram_users_table()
     background_tasks.append(asyncio.create_task(_telegram_bot_polling()))
 
     yield

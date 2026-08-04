@@ -21,23 +21,11 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 GROUP_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
-# Telegram user_id → app username mapping
-# Format: "TELEGRAM_USER_MAP=tg_id1:app_user1,tg_id2:app_user2"
-_USER_MAP_RAW = os.getenv("TELEGRAM_USER_MAP", "")
-TELEGRAM_USER_MAP: Dict[int, str] = {}
-for _pair in _USER_MAP_RAW.split(","):
-    _pair = _pair.strip()
-    if ":" in _pair:
-        _tid, _uname = _pair.split(":", 1)
-        try:
-            TELEGRAM_USER_MAP[int(_tid.strip())] = _uname.strip().lower()
-        except ValueError:
-            pass
-
-
+# Telegram user_id → app username mapping (via DB)
 def get_app_user(tg_user_id: int) -> str:
-    """Map Telegram user_id to app username. Falls back to 'default'."""
-    return TELEGRAM_USER_MAP.get(tg_user_id, "default")
+    """Map Telegram user_id to app username via DB. Falls back to 'default'."""
+    from src.core.database import get_bound_app_user
+    return get_bound_app_user(tg_user_id)
 
 
 # Per-user state for multi-step interactions
@@ -223,6 +211,23 @@ async def handle_message(message: dict):
     if text.startswith("/menu") or text.startswith("/start"):
         send_message(chat_id, "📈 <b>SoftSnail</b> — 請選擇功能：",
                      reply_markup=persistent_reply_keyboard())
+        return
+
+    if text.startswith("/bind"):
+        # /bind <app_username> — bind this Telegram account to an app user
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            current = get_app_user(user_id)
+            msg = (f"🔗 目前綁定：<b>{current}</b>\n\n"
+                   f"用法：<code>/bind 帳號名稱</code>\n"
+                   f"例如：<code>/bind alex</code>")
+            send_message(chat_id, msg)
+            return
+        app_username = parts[1].strip().lower()
+        tg_username = message["from"].get("username", "")
+        from src.core.database import bind_telegram_user
+        bind_telegram_user(user_id, app_username, tg_username)
+        send_message(chat_id, f"✅ 已綁定 Telegram → <b>{app_username}</b>")
         return
 
     # Handle persistent reply keyboard button presses
