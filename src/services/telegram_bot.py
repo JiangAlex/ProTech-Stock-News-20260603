@@ -443,7 +443,7 @@ async def _send_stock_chart(chat_id, code: str):
         # Send photo with action buttons
         keyboard = build_keyboard([
             [("➕ 加自選", f"stock_add_{code}"), ("🤖 AI分析", f"stock_ai_{code}")],
-            [("🔙 返回主選單", "menu")],
+
         ])
         send_photo(chat_id, chart_bytes,
                    caption=f"📊 <b>{code} {stock_name}</b> — MA 均線圖",
@@ -496,7 +496,7 @@ async def _cb_stock_ai(chat_id, message_id, user_id, data: str):
             if len(analysis_text) > 3800:
                 analysis_text = analysis_text[:3800] + "\n\n... (內容過長已截斷)"
             send_message(chat_id, f"🤖 <b>{code} AI 技術分析</b>\n\n{analysis_text}",
-                         reply_markup=build_keyboard([[("🔙 返回主選單", "menu")]]))
+                         reply_markup=None)
         else:
             send_message(chat_id, f"❌ {code} AI 分析無結果")
     except Exception as e:
@@ -521,7 +521,6 @@ async def _cb_watchlist_entry(chat_id, message_id, user_id):
                 row = []
         if row:
             rows.append(row)
-        rows.append([("🔙 返回", "menu")])
 
         kb = build_keyboard(rows)
         text = "📋 <b>自選股</b> — 選擇分組："
@@ -531,7 +530,7 @@ async def _cb_watchlist_entry(chat_id, message_id, user_id):
             send_message(chat_id, text, reply_markup=kb)
     except Exception as e:
         logger.error(f"Watchlist entry failed: {e}")
-        err_kb = build_keyboard([[("🔙 返回", "menu")]])
+        err_kb = None
         if message_id:
             edit_message_text(chat_id, message_id, f"❌ 載入失敗：{e}", reply_markup=err_kb)
         else:
@@ -651,7 +650,6 @@ async def _cb_scan_entry(chat_id, message_id, user_id):
     if count > 0:
         action_row.append(("🗑 清除條件", "scan_clear"))
     rows.append(action_row)
-    rows.append([("🔙 返回", "menu")])
 
     kb = build_keyboard(rows)
     text = f"📡 <b>掃描</b> — 選擇條件分類 {status}："
@@ -952,7 +950,6 @@ async def _cb_scan_run(chat_id, message_id, user_id):
         edit_message_text(chat_id, message_id, text,
                           reply_markup=build_keyboard([
                               [("🔄 重新掃描", "scan"), ("🗑 清除條件", "scan_clear")],
-                              [("🔙 返回主選單", "menu")],
                           ]))
     except Exception as e:
         logger.error(f"Scan run failed: {e}")
@@ -978,20 +975,20 @@ async def _cb_portfolio(chat_id, message_id, user_id):
             text = f"💼 <b>持股分析</b>\n\n{result['analysis']}"
             if len(text) > 3800:
                 text = text[:3800] + "\n\n... (內容過長已截斷)"
-            kb = build_keyboard([[("🔙 返回主選單", "menu")]])
+            kb = None
             if message_id:
                 edit_message_text(chat_id, message_id, text, reply_markup=kb)
             else:
                 send_message(chat_id, text, reply_markup=kb)
         else:
-            kb = build_keyboard([[("🔙 返回", "menu")]])
+            kb = None
             if message_id:
                 edit_message_text(chat_id, message_id, "💼 目前沒有持股資料或分析結果。", reply_markup=kb)
             else:
                 send_message(chat_id, "💼 目前沒有持股資料或分析結果。", reply_markup=kb)
     except Exception as e:
         logger.error(f"Portfolio analysis failed: {e}")
-        kb = build_keyboard([[("🔙 返回", "menu")]])
+        kb = None
         if message_id:
             edit_message_text(chat_id, message_id, f"❌ 持股分析失敗：{e}", reply_markup=kb)
         else:
@@ -1018,7 +1015,7 @@ async def _cb_news_entry(chat_id, message_id, user_id):
             buttons.append(("🤖 AI盤後分析", "news_ai"))
 
         if not buttons:
-            kb = build_keyboard([[("🔙 返回", "menu")]])
+            kb = None
             msg = ("📰 今日尚無新聞資料。\n\n"
                    "新聞會在每小時整點收集，AI 盤後分析於 17:00 產生。")
             if message_id:
@@ -1028,7 +1025,6 @@ async def _cb_news_entry(chat_id, message_id, user_id):
             return
 
         rows = [buttons] if len(buttons) <= 2 else [[b] for b in buttons]
-        rows.append([("🔙 返回", "menu")])
 
         kb = build_keyboard(rows)
         text = f"📰 <b>今日新聞</b>（{today_str}）："
@@ -1038,7 +1034,7 @@ async def _cb_news_entry(chat_id, message_id, user_id):
             send_message(chat_id, text, reply_markup=kb)
     except Exception as e:
         logger.error(f"News entry failed: {e}")
-        kb = build_keyboard([[("🔙 返回", "menu")]])
+        kb = None
         if message_id:
             edit_message_text(chat_id, message_id, f"❌ 載入失敗：{e}", reply_markup=kb)
         else:
@@ -1070,11 +1066,11 @@ async def _cb_news_titles(chat_id, message_id, user_id):
             text = "📋 今日尚無新聞標題。"
 
         edit_message_text(chat_id, message_id, text,
-                          reply_markup=build_keyboard([[("🔙 返回", "news"), ("🔙 主選單", "menu")]]))
+                          reply_markup=build_keyboard([[("🔙 返回", "news")]]))
     except Exception as e:
         logger.error(f"News titles failed: {e}")
         edit_message_text(chat_id, message_id, f"❌ 載入失敗：{e}",
-                          reply_markup=build_keyboard([[("🔙 返回", "menu")]]))
+                          reply_markup=None)
 
 
 async def _cb_news_ai(chat_id, message_id, user_id):
@@ -1102,11 +1098,11 @@ async def _cb_news_ai(chat_id, message_id, user_id):
             text = "🤖 今日尚無 AI 盤後分析（17:00 後產生）。"
 
         edit_message_text(chat_id, message_id, text,
-                          reply_markup=build_keyboard([[("🔙 返回", "news"), ("🔙 主選單", "menu")]]))
+                          reply_markup=build_keyboard([[("🔙 返回", "news")]]))
     except Exception as e:
         logger.error(f"News AI failed: {e}")
         edit_message_text(chat_id, message_id, f"❌ 載入失敗：{e}",
-                          reply_markup=build_keyboard([[("🔙 返回", "menu")]]))
+                          reply_markup=None)
 
 
 
@@ -1122,7 +1118,7 @@ def _cb_help(chat_id, message_id):
         "💬 在群組中 <b>@Bot 問題</b> 可觸發 AI 搜尋\n"
         "💬 一般訊息會自動存檔為討論紀錄"
     )
-    kb = build_keyboard([[("🔙 返回", "menu")]])
+    kb = None
     if message_id:
         edit_message_text(chat_id, message_id, help_text, reply_markup=kb)
     else:
