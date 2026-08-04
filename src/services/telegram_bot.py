@@ -380,8 +380,9 @@ async def handle_callback_query(callback_query: dict):
             await _cb_news_other(chat_id, message_id, user_id, news_date, cat_name)
 
     elif data.startswith("news_date_"):
-        # Date header button — just show that date's news entry again
-        await _cb_news_entry(chat_id, message_id, user_id)
+        # Layer 2: show categories for that date
+        target_date = data.replace("news_date_", "")
+        await _cb_news_date(chat_id, message_id, user_id, target_date)
 
     elif data == "help":
         _cb_help(chat_id, message_id)
@@ -1017,57 +1018,36 @@ async def _cb_portfolio(chat_id, message_id, user_id):
 
 
 async def _cb_news_entry(chat_id, message_id, user_id):
-    """Show news by date (last 5 days), listing all available categories per date."""
+    """Layer 1: Show date buttons (last 3 days)."""
     try:
         from src.core.database import get_notes
         from datetime import timedelta
-        from collections import defaultdict
         cutoff_str = (date.today() - timedelta(days=3)).isoformat()
 
         notes = get_notes("NEWS", "shared")
-        recent_notes = [n for n in notes if str(n.get("news_date", "")) >= cutoff_str]
-
-        # Group by date, collect distinct categories
-        # category key = normalized title for grouping
-        dates_data = defaultdict(dict)  # {date: {category_label: category_key}}
-        for n in recent_notes:
+        # Collect dates that have any data
+        dates_with_data = set()
+        for n in notes:
             d = str(n.get("news_date", ""))
-            title = n.get("title") or ""
-            if "AI 盤後分析" in title:
-                dates_data[d]["🤖 AI盤後分析"] = "ai"
-            elif "財經" in title or "熱門新聞" in title:
-                dates_data[d]["📋 財經熱門"] = "titles"
-            elif title and title != "(無標題)":
-                # Other categories like 經濟日報
-                dates_data[d][f"📰 {title}"] = f"other_{title}"
+            if d >= cutoff_str:
+                dates_with_data.add(d)
 
-        if not dates_data:
+        if not dates_with_data:
             kb = None
-            msg = "📰 近 5 日無新聞資料。"
+            msg = "📰 近 3 日無新聞資料。"
             if message_id:
                 edit_message_text(chat_id, message_id, msg, reply_markup=kb)
             else:
                 send_message(chat_id, msg, reply_markup=kb)
             return
 
-        # Build: date header row + category buttons per date
+        # One button per date
         rows = []
-        for d in sorted(dates_data.keys(), reverse=True):
-            cats = dates_data[d]
-            # Date header (clicking does nothing meaningful, just goes to news)
+        for d in sorted(dates_with_data, reverse=True):
             rows.append([(f"📅 {d}", f"news_date_{d}")])
-            # Category buttons, max 2 per row
-            btns = []
-            for label, key in cats.items():
-                cb_data = f"news_cat_{key}_{d}"
-                if len(cb_data) > 64:
-                    cb_data = cb_data[:64]
-                btns.append((label, cb_data))
-            for i in range(0, len(btns), 2):
-                rows.append(btns[i:i+2])
 
         kb = build_keyboard(rows)
-        text = "📰 <b>新聞</b> — 選擇日期與類別："
+        text = "📰 <b>新聞</b> — 選擇日期："
         if message_id:
             edit_message_text(chat_id, message_id, text, reply_markup=kb)
         else:
@@ -1079,6 +1059,53 @@ async def _cb_news_entry(chat_id, message_id, user_id):
             edit_message_text(chat_id, message_id, f"❌ 載入失敗：{e}", reply_markup=kb)
         else:
             send_message(chat_id, f"❌ 載入失敗：{e}", reply_markup=kb)
+
+
+async def _cb_news_date(chat_id, message_id, user_id, target_date):
+    """Layer 2: Show available categories for a specific date."""
+    try:
+        from src.core.database import get_notes
+        from collections import OrderedDict
+        notes = get_notes("NEWS", "shared")
+
+        # Collect distinct categories for this date
+        cats = OrderedDict()
+        for n in notes:
+            if str(n.get("news_date", "")) != target_date:
+                continue
+            title = n.get("title") or ""
+            if "AI 盤後分析" in title:
+                cats["🤖 AI盤後分析"] = "ai"
+            elif "財經" in title or "熱門新聞" in title:
+                cats["📋 財經熱門"] = "titles"
+            elif title:
+                cats[f"📰 {title}"] = f"other_{title}"
+
+        if not cats:
+            edit_message_text(chat_id, message_id,
+                              f"📅 {target_date} 無新聞資料。",
+                              reply_markup=build_keyboard([[("🔙 返回", "news")]]))
+            return
+
+        rows = []
+        btns = []
+        for label, key in cats.items():
+            cb_data = f"news_cat_{key}_{target_date}"
+            if len(cb_data) > 64:
+                cb_data = cb_data[:64]
+            btns.append((label, cb_data))
+        for i in range(0, len(btns), 2):
+            rows.append(btns[i:i+2])
+        rows.append([("🔙 返回", "news")])
+
+        kb = build_keyboard(rows)
+        edit_message_text(chat_id, message_id,
+                          f"📅 <b>{target_date}</b> — 選擇類別：",
+                          reply_markup=kb)
+    except Exception as e:
+        logger.error(f"News date failed: {e}")
+        edit_message_text(chat_id, message_id, f"❌ 載入失敗：{e}",
+                          reply_markup=None)
 
 
 async def _cb_news_titles(chat_id, message_id, user_id, target_date=None):
