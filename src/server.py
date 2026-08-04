@@ -27,7 +27,64 @@ from src.core.pg_client import (
 from src.services.yahoo_service import fetch_hot_stocks, fetch_revenue, fetch_dividend, fetch_rank
 from src.services.kline_analysis import analyze_kline, get_analysis_history
 
-app = FastAPI(title="ProTech Stock Dashboard", version="2.0.0")
+from contextlib import asynccontextmanager
+from concurrent.futures import ThreadPoolExecutor
+
+# Dedicated thread pool for background blocking I/O (e.g. Telegram polling).
+# Daemon threads ensure they don't block process exit.
+_bg_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="bg-io")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # --- Startup ---
+    init_db()
+    from src.core.database import init_news_digest_table
+    init_news_digest_table()
+    from src.services.market_scan import init_daily_indicators_table
+    init_daily_indicators_table()
+    from src.services.concept_service import init_concept_table, update_all_concepts
+    init_concept_table()
+    # 若概念股資料表為空，自動填入內建資料
+    try:
+        import psycopg2
+        from src.core.pg_client import DB_CONFIG
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM stock_concepts")
+        if cur.fetchone()[0] == 0:
+            conn.close()
+            update_all_concepts()
+        else:
+            conn.close()
+    except Exception:
+        pass
+
+    background_tasks = []
+    background_tasks.append(asyncio.create_task(_daily_rank_job()))
+    background_tasks.append(asyncio.create_task(_daily_alert_job()))
+    background_tasks.append(asyncio.create_task(_daily_us_index_job()))
+    background_tasks.append(asyncio.create_task(_daily_twii_job()))
+    background_tasks.append(asyncio.create_task(_realtime_alert_job()))
+    background_tasks.append(asyncio.create_task(_weekly_news_digest_job()))
+    background_tasks.append(asyncio.create_task(_daily_market_scan_job()))
+    background_tasks.append(asyncio.create_task(_daily_finance_news_job()))
+    background_tasks.append(asyncio.create_task(_weekly_concept_update_job()))
+    # Telegram Bot polling
+    from src.core.database import init_telegram_discussions_table
+    init_telegram_discussions_table()
+    background_tasks.append(asyncio.create_task(_telegram_bot_polling()))
+
+    yield
+
+    # --- Shutdown ---
+    for task in background_tasks:
+        task.cancel()
+    await asyncio.gather(*background_tasks, return_exceptions=True)
+    _bg_executor.shutdown(wait=False, cancel_futures=True)
+
+
+app = FastAPI(title="ProTech Stock Dashboard", version="2.0.0", lifespan=lifespan)
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 UPLOADS_DIR = Path(__file__).parent.parent / "data" / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
@@ -59,62 +116,11 @@ def _run_ocr(image_data: bytes) -> str:
     return ocr_text[:200] if ocr_text else ""
 
 
-_background_tasks: list = []
-
-
-@app.on_event("startup")
-def startup():
-    init_db()
-    from src.core.database import init_news_digest_table
-    init_news_digest_table()
-    from src.services.market_scan import init_daily_indicators_table
-    init_daily_indicators_table()
-    from src.services.concept_service import init_concept_table, update_all_concepts
-    init_concept_table()
-    # 若概念股資料表為空，自動填入內建資料
-    try:
-        import psycopg2
-        from src.core.pg_client import DB_CONFIG
-        conn = psycopg2.connect(**DB_CONFIG)
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM stock_concepts")
-        if cur.fetchone()[0] == 0:
-            conn.close()
-            update_all_concepts()
-        else:
-            conn.close()
-    except Exception:
-        pass
-    import asyncio
-    loop = asyncio.get_event_loop()
-    _background_tasks.append(loop.create_task(_daily_rank_job()))
-    _background_tasks.append(loop.create_task(_daily_alert_job()))
-    _background_tasks.append(loop.create_task(_daily_us_index_job()))
-    _background_tasks.append(loop.create_task(_daily_twii_job()))
-    _background_tasks.append(loop.create_task(_realtime_alert_job()))
-    _background_tasks.append(loop.create_task(_weekly_news_digest_job()))
-    _background_tasks.append(loop.create_task(_daily_market_scan_job()))
-    _background_tasks.append(loop.create_task(_daily_finance_news_job()))
-    _background_tasks.append(loop.create_task(_weekly_concept_update_job()))
-    # Telegram Bot polling
-    from src.core.database import init_telegram_discussions_table
-    init_telegram_discussions_table()
-    _background_tasks.append(loop.create_task(_telegram_bot_polling()))
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    for task in _background_tasks:
-        task.cancel()
-    import asyncio
-    await asyncio.gather(*_background_tasks, return_exceptions=True)
-    _background_tasks.clear()
-
 
 async def _telegram_bot_polling():
     """Telegram Bot long polling background task."""
     from src.services.telegram_bot import run_polling
-    await run_polling()
+    await run_polling(executor=_bg_executor)
 
 
 async def _weekly_concept_update_job():

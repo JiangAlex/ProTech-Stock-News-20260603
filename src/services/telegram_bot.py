@@ -1069,8 +1069,13 @@ async def _save_note(chat_id, user_id: int, stock_code: str, content: str):
 # Long Polling Loop
 # ---------------------------------------------------------------------------
 
-async def run_polling():
-    """Main long polling loop — runs as asyncio background task."""
+async def run_polling(executor=None):
+    """Main long polling loop — runs as asyncio background task.
+
+    Args:
+        executor: Optional ThreadPoolExecutor for blocking HTTP calls.
+                  If None, uses the default event loop executor.
+    """
     if not BOT_TOKEN:
         logger.warning("TELEGRAM_BOT_TOKEN not set, Telegram bot polling disabled")
         return
@@ -1089,7 +1094,7 @@ async def run_polling():
         try:
             url = (f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
                    f"?offset={offset}&timeout=30&allowed_updates=[\"message\",\"callback_query\"]")
-            data = await loop.run_in_executor(None, _fetch_updates, url)
+            data = await loop.run_in_executor(executor, _fetch_updates, url)
 
             if not data.get("ok"):
                 logger.error(f"getUpdates error: {data}")
