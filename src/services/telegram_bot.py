@@ -223,7 +223,7 @@ async def handle_message(message: dict):
                    f"例如：<code>/bind alex</code>")
             send_message(chat_id, msg)
             return
-        app_username = parts[1].strip().lower()
+        app_username = parts[1].strip()
         tg_username = message["from"].get("username", "")
         from src.core.database import bind_telegram_user
         bind_telegram_user(user_id, app_username, tg_username)
