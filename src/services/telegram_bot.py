@@ -199,6 +199,20 @@ async def handle_message(message: dict):
         await _handle_user_state(message, state)
         return
 
+    # Fallback: if user is replying to bot's ForceReply message, check state
+    reply_to = message.get("reply_to_message")
+    if reply_to and reply_to.get("from", {}).get("is_bot"):
+        # User replied to bot but state may have been cleared or not set
+        # Try to infer action from the bot's original message
+        bot_text = reply_to.get("text", "")
+        if "股票代號" in bot_text:
+            code = text.upper().replace(" ", "")
+            await _send_stock_chart(chat_id, code)
+            return
+        elif "備註" in bot_text:
+            # Try to find stock code from prior message context
+            pass
+
     # @Bot mention → AI semantic search
     if bot_mentioned:
         await _handle_mention_query(message, text)
