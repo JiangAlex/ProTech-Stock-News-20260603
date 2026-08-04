@@ -195,6 +195,7 @@ async def handle_message(message: dict):
 
     # Check user state (waiting for input)
     state = user_states.get(user_id)
+    logger.info(f"[MSG] user_id={user_id}, text={text!r}, state={state}, all_states={user_states}")
     if state:
         await _handle_user_state(message, state)
         return
@@ -333,6 +334,7 @@ async def _handle_user_state(message: dict, state: dict):
 async def _cb_stock_entry(chat_id, message_id, user_id):
     """Ask user to input stock code."""
     user_states[user_id] = {"action": "waiting_stock_code"}
+    logger.info(f"[CB] stock_entry set state for user_id={user_id}, states={user_states}")
     # Edit original message to show status
     edit_message_text(chat_id, message_id,
                       "📊 查股票 — 等待輸入代號...",
