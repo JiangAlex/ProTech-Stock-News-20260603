@@ -1022,7 +1022,7 @@ async def _cb_news_entry(chat_id, message_id, user_id):
         from src.core.database import get_notes
         from datetime import timedelta
         from collections import defaultdict
-        cutoff_str = (date.today() - timedelta(days=5)).isoformat()
+        cutoff_str = (date.today() - timedelta(days=3)).isoformat()
 
         notes = get_notes("NEWS", "shared")
         recent_notes = [n for n in notes if str(n.get("news_date", "")) >= cutoff_str]
