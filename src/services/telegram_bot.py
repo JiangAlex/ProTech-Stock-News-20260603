@@ -275,9 +275,13 @@ async def handle_callback_query(callback_query: dict):
 
     # Route by callback_data prefix
     if data == "menu":
-        edit_message_text(chat_id, message_id,
+        result = edit_message_text(chat_id, message_id,
                           "📈 <b>SoftSnail</b> — 請選擇功能：",
                           reply_markup=main_menu_keyboard())
+        if result is None:
+            # edit failed (e.g. photo message can't be edited to text)
+            send_message(chat_id, "📈 <b>SoftSnail</b> — 請選擇功能：",
+                         reply_markup=main_menu_keyboard())
 
     elif data == "stock":
         await _cb_stock_entry(chat_id, message_id, user_id)
