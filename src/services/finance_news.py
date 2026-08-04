@@ -666,12 +666,25 @@ def run_daily_ai_analysis() -> dict:
     # AI 分析
     analysis = analyze_finance_news_ai(news_items)
     if analysis:
+        # 去重：檢查當天是否已存在同標題的 AI 盤後分析
+        ai_title = f"🤖 AI 盤後分析 — {today_display}"
+        from src.core.database import get_notes
+        existing_notes = get_notes("NEWS", "shared")
+        already_exists = any(
+            n.get("title") == ai_title and n.get("news_date") == today_str
+            for n in existing_notes
+        )
+        if already_exists:
+            logger.info("Daily AI analysis already exists for today, skipping save")
+            result["ai_saved"] = True
+            return result
+
         add_note(
             stock_code="NEWS",
             content=analysis,
             user_id="shared",
             news_date=today_str,
-            title=f"🤖 AI 盤後分析 — {today_display}",
+            title=ai_title,
         )
         result["ai_saved"] = True
         logger.info("Daily AI analysis saved")

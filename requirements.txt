@@ -10,3 +10,4 @@ yfinance==0.2.43
 python-dotenv==1.0.1
 pytesseract==0.3.13
 Pillow==10.4.0
+matplotlib==3.9.0

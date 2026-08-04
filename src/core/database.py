@@ -651,3 +651,52 @@ def get_week_news_notes(start_date, end_date, user_id=None):
         return [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
+
+
+# --- Telegram Discussions ---
+
+def init_telegram_discussions_table():
+    """Create telegram_discussions table if not exists."""
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS telegram_discussions (
+                id SERIAL PRIMARY KEY,
+                user_name TEXT,
+                user_id BIGINT,
+                message TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_td_created ON telegram_discussions (created_at DESC)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def save_discussion(user_name: str, user_id: int, message: str):
+    """Save a telegram group discussion message."""
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO telegram_discussions (user_name, user_id, message) VALUES (%s, %s, %s)",
+            (user_name, user_id, message))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_discussions(limit: int = 50, offset: int = 0) -> list:
+    """Get discussion messages, newest first."""
+    conn = _conn()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            "SELECT id, user_name, user_id, message, created_at FROM telegram_discussions "
+            "ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            (limit, offset))
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()

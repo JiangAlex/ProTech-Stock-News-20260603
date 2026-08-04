@@ -92,6 +92,16 @@ def startup():
     asyncio.get_event_loop().create_task(_daily_market_scan_job())
     asyncio.get_event_loop().create_task(_daily_finance_news_job())
     asyncio.get_event_loop().create_task(_weekly_concept_update_job())
+    # Telegram Bot polling
+    from src.core.database import init_telegram_discussions_table
+    init_telegram_discussions_table()
+    asyncio.get_event_loop().create_task(_telegram_bot_polling())
+
+
+async def _telegram_bot_polling():
+    """Telegram Bot long polling background task."""
+    from src.services.telegram_bot import run_polling
+    await run_polling()
 
 
 async def _weekly_concept_update_job():
@@ -1091,6 +1101,14 @@ def api_search_notes(q: str = Query(""), user: str = Query("default"), ai: bool 
 @app.get("/api/notes/ask")
 def api_ask_notes(q: str = Query(""), user: str = Query("default")):
     from src.services.semantic_search import ask_news
+
+
+# --- Telegram Discussions ---
+
+@app.get("/api/discussions")
+def api_get_discussions(limit: int = Query(50, le=200), offset: int = Query(0)):
+    from src.core.database import get_discussions
+    return get_discussions(limit, offset)
     return ask_news(q, user)
 
 
