@@ -423,7 +423,9 @@ async def _send_stock_chart(chat_id, code: str):
                    caption=f"📊 <b>{code} {stock_name}</b> — MA 均線圖",
                    reply_markup=keyboard)
     except Exception as e:
-        logger.error(f"Stock chart failed for {code}: {e}")
+        import traceback
+        print(f"[ERR] Stock chart failed for {code}: {e}")
+        traceback.print_exc()
         send_message(chat_id, f"❌ 查詢 {code} 失敗：{e}")
 
 
