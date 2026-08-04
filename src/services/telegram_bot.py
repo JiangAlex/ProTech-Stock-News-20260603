@@ -356,11 +356,13 @@ async def handle_callback_query(callback_query: dict):
     elif data == "news":
         await _cb_news_entry(chat_id, message_id, user_id)
 
-    elif data == "news_titles":
-        await _cb_news_titles(chat_id, message_id, user_id)
+    elif data == "news_titles" or data.startswith("news_titles_"):
+        news_date = data.replace("news_titles_", "") if "_" in data else None
+        await _cb_news_titles(chat_id, message_id, user_id, news_date)
 
-    elif data == "news_ai":
-        await _cb_news_ai(chat_id, message_id, user_id)
+    elif data == "news_ai" or data.startswith("news_ai_"):
+        news_date = data.replace("news_ai_", "") if "_" in data else None
+        await _cb_news_ai(chat_id, message_id, user_id, news_date)
 
     elif data == "help":
         _cb_help(chat_id, message_id)
@@ -996,43 +998,50 @@ async def _cb_portfolio(chat_id, message_id, user_id):
 
 
 async def _cb_news_entry(chat_id, message_id, user_id):
-    """Show news buttons (only if data available)."""
+    """Show news by date (last 5 days), each date has AI analysis and headlines."""
     try:
         from src.core.database import get_notes
         from datetime import timedelta
-        today = date.today()
-        cutoff_str = (today - timedelta(days=5)).isoformat()
+        cutoff_str = (date.today() - timedelta(days=5)).isoformat()
 
         notes = get_notes("NEWS", "shared")
         recent_notes = [n for n in notes if str(n.get("news_date", "")) >= cutoff_str]
 
-        has_titles = any("熱門新聞" in (n.get("title") or "") or "財經" in (n.get("title") or "")
-                        for n in recent_notes)
-        has_ai = any("AI 盤後分析" in (n.get("title") or "") for n in recent_notes)
+        # Group by date, collect available types per date
+        dates_data = {}  # {date_str: {"titles": bool, "ai": bool}}
+        for n in recent_notes:
+            d = str(n.get("news_date", ""))
+            if d not in dates_data:
+                dates_data[d] = {"titles": False, "ai": False}
+            title = n.get("title") or ""
+            if "熱門新聞" in title or "財經" in title:
+                dates_data[d]["titles"] = True
+            if "AI 盤後分析" in title:
+                dates_data[d]["ai"] = True
 
-        # If no AI analysis today, check if yesterday's exists
-        if not has_ai:
-            from datetime import timedelta
-        buttons = []
-        if has_titles:
-            buttons.append(("📋 每日財經熱門話題", "news_titles"))
-        if has_ai:
-            buttons.append(("🤖 AI盤後分析", "news_ai"))
+        # Build buttons per date (sorted newest first)
+        rows = []
+        for d in sorted(dates_data.keys(), reverse=True):
+            info = dates_data[d]
+            if info["titles"] or info["ai"]:
+                btns = []
+                if info["titles"]:
+                    btns.append((f"📋 {d}", f"news_titles_{d}"))
+                if info["ai"]:
+                    btns.append((f"🤖 {d}", f"news_ai_{d}"))
+                rows.append(btns)
 
-        if not buttons:
+        if not rows:
             kb = None
-            msg = ("📰 近 5 日無新聞資料。\n\n"
-                   "新聞會在每小時整點收集，AI 盤後分析於 17:00 產生。")
+            msg = "📰 近 5 日無新聞資料。"
             if message_id:
                 edit_message_text(chat_id, message_id, msg, reply_markup=kb)
             else:
                 send_message(chat_id, msg, reply_markup=kb)
             return
 
-        rows = [buttons] if len(buttons) <= 2 else [[b] for b in buttons]
-
         kb = build_keyboard(rows)
-        text = "📰 <b>新聞</b> — 請選擇："
+        text = "📰 <b>新聞</b>（📋 財經 / 🤖 AI 盤後）："
         if message_id:
             edit_message_text(chat_id, message_id, text, reply_markup=kb)
         else:
@@ -1046,31 +1055,30 @@ async def _cb_news_entry(chat_id, message_id, user_id):
             send_message(chat_id, f"❌ 載入失敗：{e}", reply_markup=kb)
 
 
-async def _cb_news_titles(chat_id, message_id, user_id):
-    """Show recent news titles (last 5 days)."""
+async def _cb_news_titles(chat_id, message_id, user_id, target_date=None):
+    """Show news titles for a specific date."""
     try:
         from src.core.database import get_notes
-        from datetime import timedelta
-        cutoff_str = (date.today() - timedelta(days=5)).isoformat()
         notes = get_notes("NEWS", "shared")
 
-        # Find most recent news titles note
+        # Find the note for the target date
         titles_note = None
         for n in notes:
-            if str(n.get("news_date", "")) >= cutoff_str:
-                title = n.get("title") or ""
-                if "熱門新聞" in title or "財經" in title:
-                    titles_note = n
-                    break
+            if target_date and str(n.get("news_date", "")) != target_date:
+                continue
+            title = n.get("title") or ""
+            if "熱門新聞" in title or "財經" in title:
+                titles_note = n
+                break
 
         if titles_note and titles_note.get("content"):
             content = titles_note["content"]
-            news_date = titles_note.get("news_date", "")
-            text = f"📋 <b>每日財經熱門話題</b>（{news_date}）\n\n{content}"
+            nd = titles_note.get("news_date", "")
+            text = f"📋 <b>每日財經熱門話題</b>（{nd}）\n\n{content}"
             if len(text) > 3800:
                 text = text[:3800] + "\n... (截斷)"
         else:
-            text = "📋 近期無新聞標題。"
+            text = "📋 該日無新聞標題。"
 
         edit_message_text(chat_id, message_id, text,
                           reply_markup=build_keyboard([[("🔙 返回", "news")]]))
@@ -1080,31 +1088,30 @@ async def _cb_news_titles(chat_id, message_id, user_id):
                           reply_markup=None)
 
 
-async def _cb_news_ai(chat_id, message_id, user_id):
-    """Show AI analysis (most recent within 5 days)."""
+async def _cb_news_ai(chat_id, message_id, user_id, target_date=None):
+    """Show AI analysis for a specific date."""
     try:
         from src.core.database import get_notes
-        from datetime import timedelta
-        cutoff_str = (date.today() - timedelta(days=5)).isoformat()
         notes = get_notes("NEWS", "shared")
 
-        # Find most recent AI analysis note
+        # Find the AI note for the target date
         ai_note = None
         for n in notes:
-            if str(n.get("news_date", "")) >= cutoff_str:
-                title = n.get("title") or ""
-                if "AI 盤後分析" in title:
-                    ai_note = n
-                    break
+            if target_date and str(n.get("news_date", "")) != target_date:
+                continue
+            title = n.get("title") or ""
+            if "AI 盤後分析" in title:
+                ai_note = n
+                break
 
         if ai_note and ai_note.get("content"):
             content = ai_note["content"]
-            news_date = ai_note.get("news_date", "")
-            text = f"🤖 <b>AI 盤後分析</b>（{news_date}）\n\n{content}"
+            nd = ai_note.get("news_date", "")
+            text = f"🤖 <b>AI 盤後分析</b>（{nd}）\n\n{content}"
             if len(text) > 3800:
                 text = text[:3800] + "\n... (截斷)"
         else:
-            text = "🤖 近期無 AI 盤後分析（每日 17:00 產生）。"
+            text = "🤖 該日無 AI 盤後分析。"
 
         edit_message_text(chat_id, message_id, text,
                           reply_markup=build_keyboard([[("🔙 返回", "news")]]))
