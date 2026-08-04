@@ -325,7 +325,7 @@ async def _cb_stock_entry(chat_id, message_id, user_id):
                       reply_markup=build_keyboard([[("🔙 取消", "menu")]]))
     # Send new message with ForceReply so bot can receive the reply in group chats
     # (Group Privacy mode blocks plain messages but allows replies to bot)
-    send_message(chat_id, "📊 請輸入股票代號（如 2330）：",
+    send_message(chat_id, "📊 請輸入股票代號：",
                  reply_markup={"force_reply": True, "selective": True})
 
 
