@@ -319,9 +319,14 @@ async def _handle_user_state(message: dict, state: dict):
 async def _cb_stock_entry(chat_id, message_id, user_id):
     """Ask user to input stock code."""
     user_states[user_id] = {"action": "waiting_stock_code"}
+    # Edit original message to show status
     edit_message_text(chat_id, message_id,
-                      "📊 請輸入股票代號（如 2330）：",
-                      reply_markup=build_keyboard([[("🔙 返回", "menu")]]))
+                      "📊 查股票 — 等待輸入代號...",
+                      reply_markup=build_keyboard([[("🔙 取消", "menu")]]))
+    # Send new message with ForceReply so bot can receive the reply in group chats
+    # (Group Privacy mode blocks plain messages but allows replies to bot)
+    send_message(chat_id, "📊 請輸入股票代號（如 2330）：",
+                 reply_markup={"force_reply": True, "selective": True})
 
 
 async def _send_stock_chart(chat_id, code: str):
@@ -506,13 +511,16 @@ async def _cb_watchlist_note(chat_id, message_id, user_id, data: str):
         else:
             text += "（尚無備註）\n"
 
-        text += "\n💬 請直接輸入文字新增備註："
+        text += "\n💬 新增備註："
 
         # Set user state to wait for note input
         user_states[user_id] = {"action": "waiting_note", "stock_code": code}
 
         edit_message_text(chat_id, message_id, text,
                           reply_markup=build_keyboard([[("❌ 取消", f"wl_stock_{code}")]]))
+        # Send ForceReply so bot can receive reply in group chats
+        send_message(chat_id, "💬 請輸入備註內容：",
+                     reply_markup={"force_reply": True, "selective": True})
     except Exception as e:
         logger.error(f"Watchlist note failed: {e}")
         edit_message_text(chat_id, message_id, f"❌ 載入失敗：{e}",
