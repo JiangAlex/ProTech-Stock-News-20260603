@@ -999,15 +999,20 @@ async def _cb_news_entry(chat_id, message_id, user_id):
     """Show news buttons (only if data available)."""
     try:
         from src.core.database import get_notes
-        today_str = date.today().isoformat()
+        from datetime import timedelta
+        today = date.today()
+        cutoff_str = (today - timedelta(days=5)).isoformat()
 
         notes = get_notes("NEWS", "shared")
-        today_notes = [n for n in notes if str(n.get("news_date", "")) == today_str]
+        recent_notes = [n for n in notes if str(n.get("news_date", "")) >= cutoff_str]
 
         has_titles = any("熱門新聞" in (n.get("title") or "") or "財經" in (n.get("title") or "")
-                        for n in today_notes)
-        has_ai = any("AI 盤後分析" in (n.get("title") or "") for n in today_notes)
+                        for n in recent_notes)
+        has_ai = any("AI 盤後分析" in (n.get("title") or "") for n in recent_notes)
 
+        # If no AI analysis today, check if yesterday's exists
+        if not has_ai:
+            from datetime import timedelta
         buttons = []
         if has_titles:
             buttons.append(("📋 每日財經熱門話題", "news_titles"))
@@ -1016,7 +1021,7 @@ async def _cb_news_entry(chat_id, message_id, user_id):
 
         if not buttons:
             kb = None
-            msg = ("📰 今日尚無新聞資料。\n\n"
+            msg = ("📰 近 5 日無新聞資料。\n\n"
                    "新聞會在每小時整點收集，AI 盤後分析於 17:00 產生。")
             if message_id:
                 edit_message_text(chat_id, message_id, msg, reply_markup=kb)
@@ -1027,7 +1032,7 @@ async def _cb_news_entry(chat_id, message_id, user_id):
         rows = [buttons] if len(buttons) <= 2 else [[b] for b in buttons]
 
         kb = build_keyboard(rows)
-        text = f"📰 <b>今日新聞</b>（{today_str}）："
+        text = "📰 <b>新聞</b> — 請選擇："
         if message_id:
             edit_message_text(chat_id, message_id, text, reply_markup=kb)
         else:
@@ -1042,16 +1047,17 @@ async def _cb_news_entry(chat_id, message_id, user_id):
 
 
 async def _cb_news_titles(chat_id, message_id, user_id):
-    """Show today's news titles."""
+    """Show recent news titles (last 5 days)."""
     try:
         from src.core.database import get_notes
-        today_str = date.today().isoformat()
+        from datetime import timedelta
+        cutoff_str = (date.today() - timedelta(days=5)).isoformat()
         notes = get_notes("NEWS", "shared")
 
-        # Find today's news titles note
+        # Find most recent news titles note
         titles_note = None
         for n in notes:
-            if str(n.get("news_date", "")) == today_str:
+            if str(n.get("news_date", "")) >= cutoff_str:
                 title = n.get("title") or ""
                 if "熱門新聞" in title or "財經" in title:
                     titles_note = n
@@ -1059,11 +1065,12 @@ async def _cb_news_titles(chat_id, message_id, user_id):
 
         if titles_note and titles_note.get("content"):
             content = titles_note["content"]
-            text = f"📋 <b>每日財經熱門話題</b>（{today_str}）\n\n{content}"
+            news_date = titles_note.get("news_date", "")
+            text = f"📋 <b>每日財經熱門話題</b>（{news_date}）\n\n{content}"
             if len(text) > 3800:
                 text = text[:3800] + "\n... (截斷)"
         else:
-            text = "📋 今日尚無新聞標題。"
+            text = "📋 近期無新聞標題。"
 
         edit_message_text(chat_id, message_id, text,
                           reply_markup=build_keyboard([[("🔙 返回", "news")]]))
@@ -1074,16 +1081,17 @@ async def _cb_news_titles(chat_id, message_id, user_id):
 
 
 async def _cb_news_ai(chat_id, message_id, user_id):
-    """Show AI analysis."""
+    """Show AI analysis (most recent within 5 days)."""
     try:
         from src.core.database import get_notes
-        today_str = date.today().isoformat()
+        from datetime import timedelta
+        cutoff_str = (date.today() - timedelta(days=5)).isoformat()
         notes = get_notes("NEWS", "shared")
 
-        # Find today's AI analysis note
+        # Find most recent AI analysis note
         ai_note = None
         for n in notes:
-            if str(n.get("news_date", "")) == today_str:
+            if str(n.get("news_date", "")) >= cutoff_str:
                 title = n.get("title") or ""
                 if "AI 盤後分析" in title:
                     ai_note = n
@@ -1091,11 +1099,12 @@ async def _cb_news_ai(chat_id, message_id, user_id):
 
         if ai_note and ai_note.get("content"):
             content = ai_note["content"]
-            text = f"🤖 <b>AI 盤後分析</b>（{today_str}）\n\n{content}"
+            news_date = ai_note.get("news_date", "")
+            text = f"🤖 <b>AI 盤後分析</b>（{news_date}）\n\n{content}"
             if len(text) > 3800:
                 text = text[:3800] + "\n... (截斷)"
         else:
-            text = "🤖 今日尚無 AI 盤後分析（17:00 後產生）。"
+            text = "🤖 近期無 AI 盤後分析（每日 17:00 產生）。"
 
         edit_message_text(chat_id, message_id, text,
                           reply_markup=build_keyboard([[("🔙 返回", "news")]]))
