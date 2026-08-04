@@ -256,16 +256,6 @@
         <div class="panel-body" id="listPanel"><div class="loading">載入中...</div></div>
     </div>
 
-    <!-- News Panel -->
-    <div class="panel full-width" id="newsPanel">
-        <div class="panel-header">
-            <h2>📰 新聞</h2>
-            <div>
-                <a id="newsLink" href="https://tw.stock.yahoo.com/tw-market/" target="_blank" class="btn btn-p" style="text-decoration:none;">開啟台股新聞 →</a>
-            </div>
-        </div>
-    </div>
-
     <!-- News Notes -->
     <div class="panel full-width">
         <div class="panel-header">
@@ -469,15 +459,11 @@ async function loadStock(code){
     if(isUSIndex(code)){
         document.getElementById('stockName').textContent=US_NAMES[code]||'';
         document.getElementById('fundCharts').style.display='none';
-        document.getElementById('newsLink').href=`https://finance.yahoo.com/quote/%5E${code}`;
-        document.getElementById('newsLink').textContent=`開啟 ${code} Yahoo →`;
     } else {
         if(!window._sm){const r=await fetch('/api/stocks');window._sm={};(await r.json()).forEach(s=>window._sm[s.code]=s.name);}
         document.getElementById('stockName').textContent=window._sm[code]||'';
         document.getElementById('fundCharts').style.display='';
         loadFundamentals(code);
-        document.getElementById('newsLink').href=`https://tw.news.search.yahoo.com/search?p=${code}&fr=finance`;
-        document.getElementById('newsLink').textContent=`開啟 ${code} 新聞 →`;
     }
     updateWatchBtn();
     await reloadChart();
@@ -565,7 +551,7 @@ function updateDayInfoFromCrosshair(param){
     `;
 }
 
-function closeStock(){ document.getElementById('stockPanel').style.display='none'; currentCode=''; drawLines=[];drawTexts=[]; document.getElementById('btnClearLines').style.display='none'; document.getElementById('newsLink').href='https://tw.stock.yahoo.com/tw-market/'; document.getElementById('newsLink').textContent='開啟台股新聞 →'; }
+function closeStock(){ document.getElementById('stockPanel').style.display='none'; currentCode=''; drawLines=[];drawTexts=[]; document.getElementById('btnClearLines').style.display='none'; }
 function navWatchStock(dir){
     if(!currentCode)return;
     // Try scan results first
