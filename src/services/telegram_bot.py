@@ -21,6 +21,25 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 GROUP_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
+# Telegram user_id → app username mapping
+# Format: "TELEGRAM_USER_MAP=tg_id1:app_user1,tg_id2:app_user2"
+_USER_MAP_RAW = os.getenv("TELEGRAM_USER_MAP", "")
+TELEGRAM_USER_MAP: Dict[int, str] = {}
+for _pair in _USER_MAP_RAW.split(","):
+    _pair = _pair.strip()
+    if ":" in _pair:
+        _tid, _uname = _pair.split(":", 1)
+        try:
+            TELEGRAM_USER_MAP[int(_tid.strip())] = _uname.strip().lower()
+        except ValueError:
+            pass
+
+
+def get_app_user(tg_user_id: int) -> str:
+    """Map Telegram user_id to app username. Falls back to 'default'."""
+    return TELEGRAM_USER_MAP.get(tg_user_id, "default")
+
+
 # Per-user state for multi-step interactions
 # user_states[user_id] = {"action": "...", ...}
 user_states: Dict[int, dict] = {}
@@ -444,7 +463,7 @@ async def _cb_stock_add(chat_id, message_id, user_id, data: str):
                 stock_name = s["name"]
                 break
 
-        add_watchlist(code, stock_name, "預設", "shared")
+        add_watchlist(code, stock_name, "預設", get_app_user(user_id))
         send_message(chat_id, f"✅ 已將 <b>{code} {stock_name}</b> 加入自選股（預設群組）")
     except Exception as e:
         logger.error(f"Add watchlist failed for {code}: {e}")
@@ -465,7 +484,7 @@ async def _cb_stock_ai(chat_id, message_id, user_id, data: str):
             send_message(chat_id, f"❌ 找不到 {code} 的資料")
             return
 
-        result = analyze_kline(kline, code, user_id="shared")
+        result = analyze_kline(kline, code, user_id=get_app_user(user_id))
         if result and result.get("analysis"):
             analysis_text = result["analysis"]
             # Telegram message limit is 4096 chars
@@ -484,7 +503,7 @@ async def _cb_watchlist_entry(chat_id, message_id, user_id):
     """Show watchlist groups as buttons."""
     try:
         from src.core.database import get_all_groups
-        groups = get_all_groups("shared")
+        groups = get_all_groups(get_app_user(user_id))
         if not groups:
             groups = ["預設"]
 
@@ -519,7 +538,7 @@ async def _cb_watchlist_group(chat_id, message_id, user_id, data: str):
     group_name = data.replace("wl_group_", "")
     try:
         from src.core.database import get_watchlist
-        watchlist = get_watchlist("shared")
+        watchlist = get_watchlist(get_app_user(user_id))
         stocks = [s for s in watchlist if s.get("group_name", "預設") == group_name]
 
         if not stocks:
@@ -563,7 +582,7 @@ async def _cb_watchlist_note(chat_id, message_id, user_id, data: str):
     code = data.replace("wl_note_", "")
     try:
         from src.core.database import get_notes
-        notes = get_notes(code, "shared")
+        notes = get_notes(code, get_app_user(user_id))
 
         text = f"📝 <b>{code} 備註</b>\n\n"
         if notes:
@@ -948,7 +967,7 @@ async def _cb_portfolio(chat_id, message_id, user_id):
 
     try:
         from src.services.portfolio_advisor import analyze_portfolio
-        result = analyze_portfolio("shared")
+        result = analyze_portfolio(get_app_user(user_id))
 
         if result and result.get("analysis"):
             text = f"💼 <b>持股分析</b>\n\n{result['analysis']}"
@@ -1113,6 +1132,7 @@ async def _handle_mention_query(message: dict, text: str):
     """Handle @Bot mention — AI semantic search."""
     chat_id = message["chat"]["id"]
     message_id = message["message_id"]
+    user_id = message["from"]["id"]
 
     # Strip bot mention from text
     import re
@@ -1161,7 +1181,7 @@ async def _save_note(chat_id, user_id: int, stock_code: str, content: str):
     """Save a note for a stock."""
     try:
         from src.core.database import add_note
-        add_note(stock_code=stock_code, content=content, user_id="shared")
+        add_note(stock_code=stock_code, content=content, user_id=get_app_user(user_id))
         send_message(chat_id, f"✅ 備註已儲存 — {stock_code}")
     except Exception as e:
         logger.error(f"Failed to save note: {e}")
