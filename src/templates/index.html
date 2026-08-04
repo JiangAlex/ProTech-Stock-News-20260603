@@ -11,7 +11,13 @@
         body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e1e5ea}
         .header{background:#1a1d28;padding:10px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #2a2d38}
         .header h1{font-size:16px;color:#4fc3f7}
-        .search-box{flex:1;max-width:400px;display:flex;gap:4px}
+        .search-box{flex:1;max-width:400px;display:flex;gap:4px;position:relative}
+        .search-suggestions{position:absolute;top:100%;left:0;right:0;background:#1a1d28;border:1px solid #3a3d48;border-radius:6px;max-height:220px;overflow-y:auto;z-index:10000;display:none;margin-top:2px;box-shadow:0 4px 16px rgba(0,0,0,0.5)}
+        .search-suggestions .sg-item{padding:8px 12px;cursor:pointer;font-size:13px;display:flex;gap:8px;align-items:center;border-bottom:1px solid #1f222d}
+        .search-suggestions .sg-item:last-child{border-bottom:none}
+        .search-suggestions .sg-item:hover,.search-suggestions .sg-item.active{background:#22253a}
+        .search-suggestions .sg-item .sg-code{color:#4fc3f7;font-weight:600;min-width:50px}
+        .search-suggestions .sg-item .sg-name{color:#e1e5ea}
         .search-box input{width:100%;padding:7px 10px;border-radius:6px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:13px}
         .search-box input:focus{outline:none;border-color:#4fc3f7}
         .btn{padding:6px 12px;border-radius:5px;border:none;cursor:pointer;font-size:12px;font-weight:500}
@@ -92,9 +98,10 @@
 <div class="header">
     <h1>📈 ProTech Stock</h1>
     <div class="search-box">
-        <input type="text" id="searchInput" placeholder="輸入股票代號 (如 2330, DJI, IXIC, SOX)" />
+        <input type="text" id="searchInput" placeholder="輸入代號或中文名稱 (如 2330、台積電、DJI)" autocomplete="off" />
         <button class="btn btn-s" onclick="startVoice('searchInput')" title="語音輸入" style="font-size:14px;padding:4px 8px;">🎤</button>
         <button class="btn btn-p" onclick="doSearch()">查詢</button>
+        <div class="search-suggestions" id="searchSuggestions"></div>
     </div>
     <div style="display:flex;gap:3px;">
         <button class="btn btn-s" onclick="loadStock('TWII')" style="font-size:10px;padding:3px 6px;">🇹🇼 加權</button>
@@ -434,12 +441,83 @@ async function loadAlertOverview(){
 }
 
 // --- Search ---
-function doSearch(){
-    const v=document.getElementById('searchInput').value.trim().toUpperCase();
-    if(/^\d{4}$/.test(v)) loadStock(v);
-    else if(['DJI','IXIC','SOX','TWII','^DJI','^IXIC','^SOX','^TWII'].includes(v)) loadStock(v.replace('^',''));
+let _sgIdx = -1; // active suggestion index
+async function _ensureStockMap(){
+    if(!window._sm){const r=await fetch('/api/stocks');window._sm={};(await r.json()).forEach(s=>window._sm[s.code]=s.name);}
 }
-document.addEventListener('keydown',e=>{if(e.key==='Enter')doSearch();});
+function _hideSuggestions(){
+    const box=document.getElementById('searchSuggestions');
+    box.style.display='none';box.innerHTML='';_sgIdx=-1;
+}
+function _showSuggestions(matches){
+    const box=document.getElementById('searchSuggestions');
+    if(!matches.length){_hideSuggestions();return;}
+    _sgIdx=-1;
+    box.innerHTML=matches.map((m,i)=>`<div class="sg-item" data-code="${m.code}" onclick="_selectSuggestion('${m.code}')"><span class="sg-code">${m.code}</span><span class="sg-name">${m.name}</span></div>`).join('');
+    box.style.display='block';
+}
+function _selectSuggestion(code){
+    document.getElementById('searchInput').value=code;
+    _hideSuggestions();
+    loadStock(code);
+}
+function _navSuggestions(dir){
+    const items=document.querySelectorAll('#searchSuggestions .sg-item');
+    if(!items.length)return false;
+    items.forEach(el=>el.classList.remove('active'));
+    _sgIdx+=dir;
+    if(_sgIdx<0)_sgIdx=items.length-1;
+    if(_sgIdx>=items.length)_sgIdx=0;
+    items[_sgIdx].classList.add('active');
+    items[_sgIdx].scrollIntoView({block:'nearest'});
+    return true;
+}
+async function doSearch(){
+    const raw=document.getElementById('searchInput').value.trim();
+    const v=raw.toUpperCase();
+    // Direct code match: 4-digit Taiwan stock
+    if(/^\d{4}$/.test(v)){_hideSuggestions();loadStock(v);return;}
+    // US index match
+    if(['DJI','IXIC','SOX','TWII','^DJI','^IXIC','^SOX','^TWII'].includes(v)){_hideSuggestions();loadStock(v.replace('^',''));return;}
+    // Chinese name / partial code search
+    await _ensureStockMap();
+    const matches=[];
+    for(const[code,name] of Object.entries(window._sm)){
+        if(name.includes(raw) || code.includes(v)){
+            matches.push({code,name});
+            if(matches.length>=20)break;
+        }
+    }
+    if(matches.length===1){_hideSuggestions();loadStock(matches[0].code);}
+    else if(matches.length>1){_showSuggestions(matches);}
+    else{_hideSuggestions();}
+}
+document.addEventListener('keydown',e=>{
+    const box=document.getElementById('searchSuggestions');
+    if(box&&box.style.display==='block'){
+        if(e.key==='ArrowDown'){e.preventDefault();_navSuggestions(1);return;}
+        if(e.key==='ArrowUp'){e.preventDefault();_navSuggestions(-1);return;}
+        if(e.key==='Enter'){
+            e.preventDefault();
+            const items=document.querySelectorAll('#searchSuggestions .sg-item');
+            if(_sgIdx>=0&&items[_sgIdx]){_selectSuggestion(items[_sgIdx].dataset.code);}
+            else{doSearch();}
+            return;
+        }
+        if(e.key==='Escape'){_hideSuggestions();return;}
+    }
+    if(e.key==='Enter')doSearch();
+});
+document.getElementById('searchInput').addEventListener('input',()=>{
+    const raw=document.getElementById('searchInput').value.trim();
+    if(!raw){_hideSuggestions();return;}
+    // Trigger search on input for non-pure-digit entries
+    if(!/^\d{1,4}$/.test(raw))doSearch();
+    else _hideSuggestions();
+});
+document.addEventListener('click',e=>{
+    if(!e.target.closest('.search-box'))_hideSuggestions();
+});
 
 // --- Stock Detail ---
 const US_INDICES=['DJI','IXIC','SOX','TWII'];
