@@ -31,7 +31,7 @@ from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 
 # Dedicated thread pool for background blocking I/O (e.g. Telegram polling).
-# Daemon threads ensure they don't block process exit.
+# Uses short timeouts + stop event so threads exit quickly on shutdown.
 _bg_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="bg-io")
 
 
@@ -81,7 +81,11 @@ async def lifespan(app: FastAPI):
     for task in background_tasks:
         task.cancel()
     await asyncio.gather(*background_tasks, return_exceptions=True)
-    _bg_executor.shutdown(wait=False, cancel_futures=True)
+    # Threads use short timeouts (5s) so they'll finish quickly after cancel.
+    # Run in default executor to avoid blocking the loop during shutdown.
+    await asyncio.get_event_loop().run_in_executor(
+        None, lambda: _bg_executor.shutdown(wait=True, cancel_futures=True)
+    )
 
 
 app = FastAPI(title="ProTech Stock Dashboard", version="2.0.0", lifespan=lifespan)

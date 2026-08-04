@@ -1080,21 +1080,36 @@ async def run_polling(executor=None):
         logger.warning("TELEGRAM_BOT_TOKEN not set, Telegram bot polling disabled")
         return
 
+    import threading
+
     logger.info("Telegram bot polling started")
     offset = 0
     loop = asyncio.get_event_loop()
+    _stop = threading.Event()
 
-    def _fetch_updates(url: str) -> dict:
-        """Blocking HTTP call — executed in thread executor."""
+    def _fetch_updates(url: str):
+        """Blocking HTTP call — executed in thread executor.
+        Uses short socket timeout and checks stop event to allow fast exit.
+        """
+        if _stop.is_set():
+            return None
         req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=35) as resp:
-            return json.loads(resp.read())
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                return json.loads(resp.read())
+        except Exception:
+            if _stop.is_set():
+                return None
+            raise
 
     while True:
         try:
             url = (f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-                   f"?offset={offset}&timeout=30&allowed_updates=[\"message\",\"callback_query\"]")
+                   f"?offset={offset}&timeout=4&allowed_updates=[\"message\",\"callback_query\"]")
             data = await loop.run_in_executor(executor, _fetch_updates, url)
+
+            if data is None:
+                break
 
             if not data.get("ok"):
                 logger.error(f"getUpdates error: {data}")
@@ -1110,8 +1125,11 @@ async def run_polling(executor=None):
                     await handle_message(update["message"])
 
         except asyncio.CancelledError:
+            _stop.set()
             logger.info("Telegram bot polling stopped (cancelled)")
             break
         except Exception as e:
+            if _stop.is_set():
+                break
             logger.error(f"Polling error: {e}")
             await asyncio.sleep(5)
