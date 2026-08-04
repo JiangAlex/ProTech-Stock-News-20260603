@@ -66,6 +66,8 @@ def startup():
     init_news_digest_table()
     from src.services.market_scan import init_daily_indicators_table
     init_daily_indicators_table()
+    from src.services.concept_service import init_concept_table
+    init_concept_table()
     import asyncio
     asyncio.get_event_loop().create_task(_daily_rank_job())
     asyncio.get_event_loop().create_task(_daily_alert_job())
@@ -75,6 +77,35 @@ def startup():
     asyncio.get_event_loop().create_task(_weekly_news_digest_job())
     asyncio.get_event_loop().create_task(_daily_market_scan_job())
     asyncio.get_event_loop().create_task(_daily_finance_news_job())
+    asyncio.get_event_loop().create_task(_weekly_concept_update_job())
+
+
+async def _weekly_concept_update_job():
+    """每週日 02:00 更新概念股分類資料（從 Goodinfo）。"""
+    import asyncio
+    from datetime import datetime, timedelta
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+
+    while True:
+        now = datetime.now()
+        # 計算下一個週日 02:00
+        days_until_sunday = (6 - now.weekday()) % 7
+        if days_until_sunday == 0 and now.hour >= 2:
+            days_until_sunday = 7
+        target = (now + timedelta(days=days_until_sunday)).replace(
+            hour=2, minute=0, second=0, microsecond=0)
+        await asyncio.sleep((target - now).total_seconds())
+
+        try:
+            from src.services.concept_service import update_all_concepts
+            result = update_all_concepts(delay=3.0)
+            _logger.info(
+                f"Weekly concept update: {result['concepts_count']} concepts, "
+                f"{result['stocks_count']} stock entries"
+            )
+        except Exception as e:
+            _logger.error(f"Concept update job error: {e}")
 
 
 async def _daily_finance_news_job():
@@ -839,6 +870,63 @@ def api_industries():
         return [r[0] for r in cur.fetchall()]
     finally:
         conn.close()
+
+
+@app.get("/api/concepts")
+def api_concepts():
+    """Get list of all concept stock categories."""
+    import psycopg2
+    from src.core.pg_client import DB_CONFIG
+    conn = psycopg2.connect(**DB_CONFIG)
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT concept_name, COUNT(*) as stock_count
+            FROM stock_concepts
+            GROUP BY concept_name
+            ORDER BY stock_count DESC
+        """)
+        return [{"name": r[0], "count": r[1]} for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+@app.get("/api/concepts/{concept_name}/stocks")
+def api_concept_stocks(concept_name: str):
+    """Get stocks in a specific concept category."""
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    from src.core.pg_client import DB_CONFIG
+    conn = psycopg2.connect(**DB_CONFIG)
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT sc.stock_code, sc.stock_name,
+                   di.close, di.change_pct, di.volume, di.ma_arrangement
+            FROM stock_concepts sc
+            LEFT JOIN daily_indicators di ON di.stock_code = sc.stock_code
+                AND di.date = (SELECT MAX(date) FROM daily_indicators)
+            WHERE sc.concept_name = %s
+            ORDER BY di.volume DESC NULLS LAST
+        """, (concept_name,))
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+@app.get("/api/stock/{code}/concepts")
+def api_stock_concepts(code: str):
+    """Get all concept categories a stock belongs to."""
+    from src.services.concept_service import get_stock_concepts
+    return get_stock_concepts(code)
+
+
+@app.post("/api/concepts/update")
+def api_update_concepts():
+    """Manually trigger concept stock data update."""
+    from src.services.concept_service import update_all_concepts
+    result = update_all_concepts(delay=3.0)
+    return result
 
 
 @app.get("/api/stock/{code}/revenue")

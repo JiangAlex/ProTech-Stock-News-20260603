@@ -231,9 +231,214 @@ def format_telegram_message(news_items: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _get_industry_stocks_context() -> str:
+    """
+    從 DB 取得各產業類股及其代表個股（依成交量排序），
+    作為 AI 分析時的參考資料。
+    Returns: 格式化的產業-個股對照文字。
+    """
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    from src.core.pg_client import DB_CONFIG
+
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        # 取得最近一天的 daily_indicators 日期
+        cur.execute("SELECT MAX(date) as latest FROM daily_indicators")
+        row = cur.fetchone()
+        latest_date = row["latest"] if row else None
+
+        if not latest_date:
+            conn.close()
+            return ""
+
+        # 取得各產業前 5 檔個股（依成交量排序）
+        cur.execute("""
+            SELECT sb.industry, sb.stock_code, sb.stock_name,
+                   di.close, di.change_pct, di.volume
+            FROM daily_indicators di
+            JOIN stock_basic sb ON sb.stock_code = di.stock_code
+            WHERE di.date = %s AND sb.industry IS NOT NULL
+            ORDER BY sb.industry, di.volume DESC
+        """, (latest_date,))
+        rows = cur.fetchall()
+        conn.close()
+
+        # 整理成 {industry: [stocks...]}
+        from collections import defaultdict
+        industry_map = defaultdict(list)
+        for r in rows:
+            if len(industry_map[r["industry"]]) < 5:
+                industry_map[r["industry"]].append(r)
+
+        # 格式化輸出
+        lines = []
+        for industry in sorted(industry_map.keys()):
+            stocks = industry_map[industry]
+            stock_strs = ", ".join(
+                f"{s['stock_code']}{s['stock_name']}({s['change_pct']:+.1f}%)"
+                if s.get('change_pct') else f"{s['stock_code']}{s['stock_name']}"
+                for s in stocks
+            )
+            lines.append(f"【{industry}】{stock_strs}")
+
+        return "\n".join(lines)
+    except Exception as e:
+        logger.error(f"Failed to get industry stocks context: {e}")
+        return ""
+
+
+def _get_industry_rotation_context() -> str:
+    """
+    分析全部產業類股的 K 線指標，觀察產業資金輪動。
+    計算各產業近日平均漲跌幅、成交量變化、多頭比例等。
+    Returns: 格式化的產業資金輪動分析文字。
+    """
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    from src.core.pg_client import DB_CONFIG
+    from collections import defaultdict
+
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        # 取得最近 5 個交易日
+        cur.execute("""
+            SELECT DISTINCT date FROM daily_indicators
+            ORDER BY date DESC LIMIT 5
+        """)
+        dates = [r["date"] for r in cur.fetchall()]
+        if not dates:
+            conn.close()
+            return ""
+
+        latest_date = dates[0]
+
+        # 取得最近 5 日各產業的聚合指標
+        cur.execute("""
+            SELECT sb.industry,
+                   di.date,
+                   AVG(di.change_pct) as avg_change,
+                   SUM(di.volume) as total_volume,
+                   COUNT(*) FILTER (WHERE di.ma_arrangement = '多頭排列') as bull_count,
+                   COUNT(*) FILTER (WHERE di.ma_arrangement = '空頭排列') as bear_count,
+                   COUNT(*) as total_count,
+                   AVG(di.rsi14) as avg_rsi,
+                   AVG(di.volume_ratio) as avg_vol_ratio
+            FROM daily_indicators di
+            JOIN stock_basic sb ON sb.stock_code = di.stock_code
+            WHERE di.date = ANY(%s) AND sb.industry IS NOT NULL
+            GROUP BY sb.industry, di.date
+            ORDER BY sb.industry, di.date
+        """, (dates,))
+        rows = cur.fetchall()
+        conn.close()
+
+        if not rows:
+            return ""
+
+        # 整理：每個產業最近 5 日的趨勢
+        industry_data = defaultdict(list)
+        for r in rows:
+            industry_data[r["industry"]].append(r)
+
+        # 計算各產業指標
+        results = []
+        for industry, daily_rows in industry_data.items():
+            latest_row = next((r for r in daily_rows if r["date"] == latest_date), None)
+            if not latest_row:
+                continue
+
+            # 最新日指標
+            avg_change_today = latest_row["avg_change"] or 0
+            total_vol_today = latest_row["total_volume"] or 0
+            bull_pct = (latest_row["bull_count"] / latest_row["total_count"] * 100) if latest_row["total_count"] else 0
+            bear_pct = (latest_row["bear_count"] / latest_row["total_count"] * 100) if latest_row["total_count"] else 0
+            avg_rsi = latest_row["avg_rsi"] or 50
+            avg_vol_ratio = latest_row["avg_vol_ratio"] or 1.0
+
+            # 近 5 日累計漲幅
+            cumulative_change = sum(r["avg_change"] or 0 for r in daily_rows)
+
+            # 成交量趨勢（最新日 vs 5日前）
+            if len(daily_rows) >= 2:
+                oldest_vol = daily_rows[0]["total_volume"] or 1
+                vol_change_pct = ((total_vol_today - oldest_vol) / oldest_vol * 100) if oldest_vol else 0
+            else:
+                vol_change_pct = 0
+
+            # 判斷資金流向
+            if avg_change_today > 0.5 and avg_vol_ratio > 1.2:
+                flow = "🔴 資金流入"
+            elif avg_change_today < -0.5 and avg_vol_ratio > 1.2:
+                flow = "🟢 資金流出"
+            elif avg_vol_ratio > 1.5:
+                flow = "⚡ 爆量關注"
+            elif cumulative_change > 2:
+                flow = "📈 持續走強"
+            elif cumulative_change < -2:
+                flow = "📉 持續走弱"
+            else:
+                flow = "➖ 平穩"
+
+            results.append({
+                "industry": industry,
+                "avg_change_today": avg_change_today,
+                "cumulative_5d": cumulative_change,
+                "bull_pct": bull_pct,
+                "bear_pct": bear_pct,
+                "avg_rsi": avg_rsi,
+                "avg_vol_ratio": avg_vol_ratio,
+                "vol_change_pct": vol_change_pct,
+                "flow": flow,
+            })
+
+        # 按今日漲幅排序
+        results.sort(key=lambda x: x["avg_change_today"], reverse=True)
+
+        # 格式化輸出
+        lines = [f"（資料日期：{latest_date}，對比近 5 個交易日）\n"]
+
+        # 前 5 強勢產業
+        lines.append("▲ 強勢產業（今日漲幅前 5）：")
+        for r in results[:5]:
+            lines.append(
+                f"  {r['flow']} {r['industry']}：今日{r['avg_change_today']:+.2f}%｜"
+                f"5日{r['cumulative_5d']:+.2f}%｜多頭{r['bull_pct']:.0f}%｜"
+                f"量比{r['avg_vol_ratio']:.1f}x｜RSI{r['avg_rsi']:.0f}"
+            )
+
+        # 後 5 弱勢產業
+        lines.append("\n▼ 弱勢產業（今日跌幅前 5）：")
+        for r in results[-5:]:
+            lines.append(
+                f"  {r['flow']} {r['industry']}：今日{r['avg_change_today']:+.2f}%｜"
+                f"5日{r['cumulative_5d']:+.2f}%｜空頭{r['bear_pct']:.0f}%｜"
+                f"量比{r['avg_vol_ratio']:.1f}x｜RSI{r['avg_rsi']:.0f}"
+            )
+
+        # 資金異動產業（量比 > 1.5）
+        vol_alert = [r for r in results if r["avg_vol_ratio"] > 1.5]
+        if vol_alert:
+            lines.append("\n⚡ 成交量異動產業（量比 > 1.5x）：")
+            for r in vol_alert[:5]:
+                lines.append(
+                    f"  {r['industry']}：量比{r['avg_vol_ratio']:.1f}x｜"
+                    f"今日{r['avg_change_today']:+.2f}%｜RSI{r['avg_rsi']:.0f}"
+                )
+
+        return "\n".join(lines)
+    except Exception as e:
+        logger.error(f"Failed to get industry rotation context: {e}")
+        return ""
+
+
 def analyze_finance_news_ai(news_items: list[dict]) -> str | None:
     """
-    使用 MiniMax AI 分析財經新聞重點摘要。
+    使用 MiniMax AI 分析財經新聞重點摘要，包含概念股/族群/類股/個股/產業資金輪動分析。
     Returns: AI 分析結果文字，或 None。
     """
     api_key = os.getenv("MINIMAX_API_KEY", "")
@@ -247,28 +452,75 @@ def analyze_finance_news_ai(news_items: list[dict]) -> str | None:
         for i, item in enumerate(news_items, 1)
     )
 
+    # 取得產業/個股參考資料
+    industry_context = _get_industry_stocks_context()
+    industry_section = ""
+    if industry_context:
+        industry_section = f"""
+# 台股產業類股與代表個股（今日成交量前 5 名）
+{industry_context}
+"""
+
+    # 取得概念股分類資料
+    concept_section = ""
+    try:
+        from src.services.concept_service import get_concept_stocks_context
+        concept_context = get_concept_stocks_context(limit_concepts=30)
+        if concept_context:
+            concept_section = f"""
+# 概念股/題材分類與成分股
+{concept_context}
+"""
+    except Exception as e:
+        logger.warning(f"Failed to get concept stocks context: {e}")
+
+    # 取得產業資金輪動分析
+    rotation_context = _get_industry_rotation_context()
+    rotation_section = ""
+    if rotation_context:
+        rotation_section = f"""
+# 產業類股 K 線指標分析（資金輪動觀察）
+{rotation_context}
+"""
+
     prompt = f"""# 角色
 你是一位資深台股分析師，負責每日盤後新聞彙整與趨勢分析。
 
 # 任務
-根據以下今日熱門財經新聞標題，產出簡短的盤後分析摘要。
+根據以下今日熱門財經新聞標題及產業類股 K 線指標數據，產出盤後分析摘要。
+特別注意：
+1. 你必須根據新聞內容，辨識出相關的「概念股/題材」、「族群」和「產業類股」，並列出每個概念/族群/類股中可能受影響的具體個股（代號＋名稱）。
+2. 你必須根據產業 K 線指標數據，分析目前的「產業資金輪動」方向，指出資金正從哪些產業流出、流入哪些產業。
 
 # 格式要求
 - 使用繁體中文
 - 先寫 2-3 句「今日重點」總覽
-- 分類列出關鍵主題（如：AI/半導體、金融、傳產等）
-- 標註可能影響的個股（如有明顯相關者）
-- 給出短線觀察方向
-- 總字數控制在 300 字以內
+- 再列出「🔥 概念股/題材」段落：
+  - 每個概念股/題材獨立一行，格式為：概念名稱：相關個股（代號＋名稱）
+  - 例如：AI 伺服器概念：2382 廣達、2317 鴻海、3231 緯創
+  - 至少列出 2-4 個今日相關的概念股題材
+- 再列出「👥 族群動態」段落：
+  - 列出今日新聞相關的股票族群（如：蘋果供應鏈、車用電子族群、重電族群等）
+  - 格式為：族群名稱：個股代號＋名稱（3-5 檔）
+- 再列出「📊 類股動態」段落：
+  - 列出今日新聞相關的產業類股及其代表個股
+  - 格式為：產業名稱（漲/跌/震盪）：個股代號＋名稱
+- 再列出「🔄 產業資金輪動」段落：
+  - 根據提供的產業 K 線指標數據（漲跌幅、量比、多頭比例、RSI）
+  - 分析資金流向：哪些產業正在吸引資金（強勢）、哪些正在流出（弱勢）
+  - 指出輪動方向（如：資金由電子轉向傳產、由大型股轉向中小型等）
+  - 標註值得留意的爆量或轉折訊號
+- 最後給出「📌 短線觀察」：短線操作方向建議
+- 總字數控制在 800 字以內
 
 # 今日熱門財經新聞（{date.today().strftime('%Y/%m/%d')}）
 {news_text}
-"""
+{industry_section}{concept_section}{rotation_section}"""
 
     data = json.dumps({
         "model": "MiniMax-M2.7",
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 2000,
+        "max_tokens": 3000,
         "temperature": 0.3,
     }).encode()
 
