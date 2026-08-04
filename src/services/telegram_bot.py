@@ -232,7 +232,6 @@ async def handle_message(message: dict):
     # Check user state (waiting for input)
     # Also check chat-level state for cases where user sends as channel identity
     state = user_states.get(user_id) or user_states.get(chat_id)
-    print(f"[MSG] user_id={user_id}, chat_id={chat_id}, text={text!r}, state={state}, all_states={user_states}")
     if state:
         # Clean up both possible keys
         user_states.pop(user_id, None)
@@ -377,7 +376,6 @@ async def _cb_stock_entry(chat_id, message_id, user_id):
     """Ask user to input stock code."""
     user_states[user_id] = {"action": "waiting_stock_code"}
     user_states[chat_id] = {"action": "waiting_stock_code"}
-    print(f"[CB] stock_entry set state for user_id={user_id}, chat_id={chat_id}")
     # Edit original message to show status
     edit_message_text(chat_id, message_id,
                       "📊 查股票 — 等待輸入代號...",
@@ -423,9 +421,7 @@ async def _send_stock_chart(chat_id, code: str):
                    caption=f"📊 <b>{code} {stock_name}</b> — MA 均線圖",
                    reply_markup=keyboard)
     except Exception as e:
-        import traceback
-        print(f"[ERR] Stock chart failed for {code}: {e}")
-        traceback.print_exc()
+        logger.error(f"Stock chart failed for {code}: {e}")
         send_message(chat_id, f"❌ 查詢 {code} 失敗：{e}")
 
 
@@ -1180,12 +1176,12 @@ async def run_polling(executor=None):
                   If None, uses the default event loop executor.
     """
     if not BOT_TOKEN:
-        print("[POLL] TELEGRAM_BOT_TOKEN not set, polling disabled")
+        logger.warning("TELEGRAM_BOT_TOKEN not set, polling disabled")
         return
 
     import threading
 
-    print(f"[POLL] Telegram bot polling started (token={BOT_TOKEN[:8]}...)")
+    logger.info("Telegram bot polling started")
     offset = 0
     loop = asyncio.get_event_loop()
     _stop = threading.Event()

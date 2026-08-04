@@ -24,7 +24,6 @@ TEXT_COLOR = "#e1e5ea"
 CLOSE_COLOR = "#e1e5ea"
 MA_COLORS = {
     5: "#ff6b6b",   # Red
-    10: "#ffd93d",  # Yellow
     20: "#6bcb77",  # Green
     60: "#4d96ff",  # Blue
 }
@@ -38,7 +37,7 @@ def generate_ma_chart(kline_data: List[dict], stock_code: str, stock_name: str =
         kline_data: List of {"date": "YYYY-MM-DD", "close": float, ...}
         stock_code: Stock code for title
         stock_name: Stock name for title
-        ma_periods: MA periods to draw (default: [5, 10, 20, 60])
+        ma_periods: MA periods to draw (default: [5, 20, 60])
 
     Returns:
         PNG image bytes, or None on failure
@@ -47,7 +46,7 @@ def generate_ma_chart(kline_data: List[dict], stock_code: str, stock_name: str =
         return None
 
     if ma_periods is None:
-        ma_periods = [5, 10, 20, 60]
+        ma_periods = [5, 20, 60]
 
     try:
         # Parse data
@@ -65,9 +64,6 @@ def generate_ma_chart(kline_data: List[dict], stock_code: str, stock_name: str =
         fig, ax = plt.subplots(1, 1, figsize=(10, 5))
         fig.patch.set_facecolor(BG_COLOR)
         ax.set_facecolor(PANEL_COLOR)
-
-        # Plot close price
-        ax.plot(dates, closes, color=CLOSE_COLOR, linewidth=1.2, alpha=0.6, label="收盤價")
 
         # Plot MA lines
         for period, values in ma_data.items():
