@@ -194,9 +194,13 @@ async def handle_message(message: dict):
         return
 
     # Check user state (waiting for input)
-    state = user_states.get(user_id)
-    print(f"[MSG] user_id={user_id}, text={text!r}, state={state}, all_states={user_states}")
+    # Also check chat-level state for cases where user sends as channel identity
+    state = user_states.get(user_id) or user_states.get(chat_id)
+    print(f"[MSG] user_id={user_id}, chat_id={chat_id}, text={text!r}, state={state}, all_states={user_states}")
     if state:
+        # Clean up both possible keys
+        user_states.pop(user_id, None)
+        user_states.pop(chat_id, None)
         await _handle_user_state(message, state)
         return
 
@@ -314,12 +318,14 @@ async def _handle_user_state(message: dict, state: dict):
     if action == "waiting_stock_code":
         # User entered stock code for 查股票
         user_states.pop(user_id, None)
+        user_states.pop(chat_id, None)
         code = text.upper().replace(" ", "")
         await _send_stock_chart(chat_id, code)
 
     elif action == "waiting_note":
         # User entered note content
         user_states.pop(user_id, None)
+        user_states.pop(chat_id, None)
         stock_code = state.get("stock_code", "")
         await _save_note(chat_id, user_id, stock_code, text)
 
@@ -334,7 +340,8 @@ async def _handle_user_state(message: dict, state: dict):
 async def _cb_stock_entry(chat_id, message_id, user_id):
     """Ask user to input stock code."""
     user_states[user_id] = {"action": "waiting_stock_code"}
-    print(f"[CB] stock_entry set state for user_id={user_id}, states={user_states}")
+    user_states[chat_id] = {"action": "waiting_stock_code"}
+    print(f"[CB] stock_entry set state for user_id={user_id}, chat_id={chat_id}")
     # Edit original message to show status
     edit_message_text(chat_id, message_id,
                       "📊 查股票 — 等待輸入代號...",
@@ -531,6 +538,7 @@ async def _cb_watchlist_note(chat_id, message_id, user_id, data: str):
 
         # Set user state to wait for note input
         user_states[user_id] = {"action": "waiting_note", "stock_code": code}
+        user_states[chat_id] = {"action": "waiting_note", "stock_code": code}
 
         edit_message_text(chat_id, message_id, text,
                           reply_markup=build_keyboard([[("❌ 取消", f"wl_stock_{code}")]]))
