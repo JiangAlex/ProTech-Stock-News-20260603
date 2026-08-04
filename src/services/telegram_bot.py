@@ -189,7 +189,7 @@ async def handle_message(message: dict):
 
     # Commands
     if text.startswith("/menu") or text.startswith("/start"):
-        send_message(chat_id, "📈 <b>ProTech Stock</b> — 請選擇功能：",
+        send_message(chat_id, "📈 <b>SoftSnail</b> — 請選擇功能：",
                      reply_markup=main_menu_keyboard())
         return
 
@@ -222,7 +222,7 @@ async def handle_callback_query(callback_query: dict):
     # Route by callback_data prefix
     if data == "menu":
         edit_message_text(chat_id, message_id,
-                          "📈 <b>ProTech Stock</b> — 請選擇功能：",
+                          "📈 <b>SoftSnail</b> — 請選擇功能：",
                           reply_markup=main_menu_keyboard())
 
     elif data == "stock":
