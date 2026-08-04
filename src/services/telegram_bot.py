@@ -1077,14 +1077,19 @@ async def run_polling():
 
     logger.info("Telegram bot polling started")
     offset = 0
+    loop = asyncio.get_event_loop()
+
+    def _fetch_updates(url: str) -> dict:
+        """Blocking HTTP call — executed in thread executor."""
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=35) as resp:
+            return json.loads(resp.read())
 
     while True:
         try:
             url = (f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
                    f"?offset={offset}&timeout=30&allowed_updates=[\"message\",\"callback_query\"]")
-            req = urllib.request.Request(url, method="GET")
-            with urllib.request.urlopen(req, timeout=35) as resp:
-                data = json.loads(resp.read())
+            data = await loop.run_in_executor(None, _fetch_updates, url)
 
             if not data.get("ok"):
                 logger.error(f"getUpdates error: {data}")
@@ -1099,6 +1104,9 @@ async def run_polling():
                 elif "message" in update:
                     await handle_message(update["message"])
 
+        except asyncio.CancelledError:
+            logger.info("Telegram bot polling stopped (cancelled)")
+            break
         except Exception as e:
             logger.error(f"Polling error: {e}")
             await asyncio.sleep(5)

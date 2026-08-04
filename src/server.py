@@ -59,6 +59,9 @@ def _run_ocr(image_data: bytes) -> str:
     return ocr_text[:200] if ocr_text else ""
 
 
+_background_tasks: list = []
+
+
 @app.on_event("startup")
 def startup():
     init_db()
@@ -83,19 +86,29 @@ def startup():
     except Exception:
         pass
     import asyncio
-    asyncio.get_event_loop().create_task(_daily_rank_job())
-    asyncio.get_event_loop().create_task(_daily_alert_job())
-    asyncio.get_event_loop().create_task(_daily_us_index_job())
-    asyncio.get_event_loop().create_task(_daily_twii_job())
-    asyncio.get_event_loop().create_task(_realtime_alert_job())
-    asyncio.get_event_loop().create_task(_weekly_news_digest_job())
-    asyncio.get_event_loop().create_task(_daily_market_scan_job())
-    asyncio.get_event_loop().create_task(_daily_finance_news_job())
-    asyncio.get_event_loop().create_task(_weekly_concept_update_job())
+    loop = asyncio.get_event_loop()
+    _background_tasks.append(loop.create_task(_daily_rank_job()))
+    _background_tasks.append(loop.create_task(_daily_alert_job()))
+    _background_tasks.append(loop.create_task(_daily_us_index_job()))
+    _background_tasks.append(loop.create_task(_daily_twii_job()))
+    _background_tasks.append(loop.create_task(_realtime_alert_job()))
+    _background_tasks.append(loop.create_task(_weekly_news_digest_job()))
+    _background_tasks.append(loop.create_task(_daily_market_scan_job()))
+    _background_tasks.append(loop.create_task(_daily_finance_news_job()))
+    _background_tasks.append(loop.create_task(_weekly_concept_update_job()))
     # Telegram Bot polling
     from src.core.database import init_telegram_discussions_table
     init_telegram_discussions_table()
-    asyncio.get_event_loop().create_task(_telegram_bot_polling())
+    _background_tasks.append(loop.create_task(_telegram_bot_polling()))
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    for task in _background_tasks:
+        task.cancel()
+    import asyncio
+    await asyncio.gather(*_background_tasks, return_exceptions=True)
+    _background_tasks.clear()
 
 
 async def _telegram_bot_polling():
