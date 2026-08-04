@@ -66,8 +66,22 @@ def startup():
     init_news_digest_table()
     from src.services.market_scan import init_daily_indicators_table
     init_daily_indicators_table()
-    from src.services.concept_service import init_concept_table
+    from src.services.concept_service import init_concept_table, update_all_concepts
     init_concept_table()
+    # 若概念股資料表為空，自動填入內建資料
+    try:
+        import psycopg2
+        from src.core.pg_client import DB_CONFIG
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM stock_concepts")
+        if cur.fetchone()[0] == 0:
+            conn.close()
+            update_all_concepts()
+        else:
+            conn.close()
+    except Exception:
+        pass
     import asyncio
     asyncio.get_event_loop().create_task(_daily_rank_job())
     asyncio.get_event_loop().create_task(_daily_alert_job())
