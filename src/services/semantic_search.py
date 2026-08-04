@@ -155,6 +155,13 @@ def ask_news(query: str, user_id: str = "default") -> dict:
     """
     import re
 
+    # Step 0: Detect concept stock query (e.g. "AI概念股", "電動車 概念股")
+    concept_match = re.match(r'^(.+?)\s*概念股[有哪些是什麼？?]*$', query.strip())
+    if concept_match:
+        concept_answer = _answer_from_concepts(concept_match.group(1).strip(), user_id)
+        if concept_answer:
+            return concept_answer
+
     # Step 1: Detect if query is a general/time-range question
     general_patterns = r'(最近|近\d|全部|所有|都有|有哪些|總結|摘要|整理|報導什麼|說什麼|講什麼|有什麼|一[周週]|本[周週]|這[周週]|上[周週]|重點|概況|概述|回顧|today|this week)'
     is_general = bool(re.search(general_patterns, query))
@@ -296,6 +303,78 @@ def _fetch_recent_notes(user_id: str, days: int = 7) -> list[dict]:
         return [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
+
+
+def _answer_from_concepts(concept_query: str, user_id: str = "default") -> dict | None:
+    """回答概念股查詢，從 stock_concepts 表查詢並結合技術指標。"""
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    from src.core.pg_client import DB_CONFIG
+
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        # 模糊搜尋概念名稱
+        cur.execute("""
+            SELECT DISTINCT concept_name FROM stock_concepts
+            WHERE concept_name ILIKE %s
+            ORDER BY concept_name
+        """, (f"%{concept_query}%",))
+        matched_concepts = [r["concept_name"] for r in cur.fetchall()]
+
+        if not matched_concepts:
+            conn.close()
+            return None
+
+        # 取得成分股 + 最新技術指標
+        cur.execute("""
+            SELECT sc.concept_name, sc.stock_code, sc.stock_name,
+                   di.close, di.change_pct, di.volume, di.ma_arrangement,
+                   di.rsi14, di.volume_ratio
+            FROM stock_concepts sc
+            LEFT JOIN daily_indicators di ON di.stock_code = sc.stock_code
+                AND di.date = (SELECT MAX(date) FROM daily_indicators)
+            WHERE sc.concept_name = ANY(%s)
+            ORDER BY sc.concept_name, di.volume DESC NULLS LAST
+        """, (matched_concepts,))
+        rows = cur.fetchall()
+        conn.close()
+
+        if not rows:
+            return None
+
+        # 格式化回答
+        lines = []
+        current_concept = None
+        for r in rows:
+            if r["concept_name"] != current_concept:
+                current_concept = r["concept_name"]
+                lines.append(f"\n🔥 **{current_concept}** 概念股：")
+                lines.append("代號 | 名稱 | 收盤 | 漲跌% | 均線 | RSI | 量比")
+                lines.append("---|---|---|---|---|---|---")
+
+            price = f"{r['close']:.1f}" if r.get('close') else "-"
+            change = f"{r['change_pct']:+.2f}%" if r.get('change_pct') else "-"
+            ma = r.get('ma_arrangement') or "-"
+            rsi = f"{r['rsi14']:.0f}" if r.get('rsi14') else "-"
+            vol_ratio = f"{r['volume_ratio']:.1f}x" if r.get('volume_ratio') else "-"
+
+            lines.append(f"{r['stock_code']} | {r['stock_name']} | {price} | {change} | {ma} | {rsi} | {vol_ratio}")
+
+        answer = "\n".join(lines)
+        answer += "\n\n⚠️ 以上僅供研究參考，不構成投資建議。"
+
+        _save_history(user_id, f"{concept_query}概念股", answer)
+
+        return {
+            "answer": answer,
+            "keywords": [concept_query, "概念股"] + matched_concepts,
+            "sources": [],
+        }
+    except Exception as e:
+        logger.error(f"Concept stock query failed: {e}")
+        return None
 
 
 def _answer_from_indicators(query: str, user_id: str = "default") -> dict | None:
