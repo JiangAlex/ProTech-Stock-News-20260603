@@ -1433,13 +1433,22 @@ def _cb_help(chat_id, message_id):
     """Show help text."""
     help_text = (
         "❓ <b>使用說明</b>\n\n"
-        "📊 <b>查股票</b> — 輸入代號查看 MA 均線圖\n"
-        "📋 <b>自選股</b> — 查看分組、備註、分析\n"
+        "<b>📌 功能選單</b>\n"
+        "📊 <b>查股票</b> — 輸入代號查看 MA 均線圖 + AI 分析\n"
+        "📋 <b>自選股</b> — 查看分組、備註、看圖、AI 分析\n"
         "📡 <b>掃描</b> — 多條件組合篩選股票\n"
         "💼 <b>持股分析</b> — AI 投資組合分析\n"
-        "📰 <b>新聞</b> — 今日財經熱門話題\n\n"
-        "💬 在群組中 <b>@Bot 問題</b> 可觸發 AI 搜尋\n"
-        "💬 一般訊息會自動存檔為討論紀錄"
+        "📰 <b>新聞</b> — 每日財經熱門 + AI 盤後分析\n\n"
+        "<b>📌 指令</b>\n"
+        "<code>/start</code> or <code>/menu</code> — 顯示主選單\n"
+        "<code>/bind 帳號</code> — 綁定 Telegram 帳號到 WEB 使用者\n"
+        "　例：<code>/bind alex</code>\n"
+        "　綁定後自選股/備註/警示等同步 WEB 端資料\n\n"
+        "<b>📌 互動</b>\n"
+        "💬 <b>@Bot 問題</b> — AI 語意搜尋（新聞/備註）\n"
+        "💬 一般訊息 — 自動存檔為討論紀錄\n\n"
+        "<b>📌 設定</b>\n"
+        "Bot Token / Chat ID 請在 WEB「⚙ 設定」中填寫"
     )
     kb = None
     if message_id:
