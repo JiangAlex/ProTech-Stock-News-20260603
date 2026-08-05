@@ -390,6 +390,12 @@ async def handle_callback_query(callback_query: dict):
     elif data == "news":
         await _cb_news_entry(chat_id, message_id, user_id)
 
+    elif data == "news_notes":
+        await _cb_news_notes_list(chat_id, message_id, user_id)
+
+    elif data == "news_digests":
+        await _cb_news_digest_list(chat_id, message_id, user_id)
+
     elif data == "news_titles" or data.startswith("news_titles_"):
         news_date = data.replace("news_titles_", "") if "_" in data else None
         await _cb_news_titles(chat_id, message_id, user_id, news_date)
@@ -1238,59 +1244,81 @@ async def _cb_portfolio(chat_id, message_id, user_id):
 
 
 async def _cb_news_entry(chat_id, message_id, user_id):
-    """Layer 1: Show date buttons (last 3 days) + weekly digest."""
+    """Layer 2: Show two entry buttons — 新聞備註 / 本週重點."""
+    rows = [
+        [("📰 新聞備註", "news_notes"), ("📋 本週重點", "news_digests")],
+    ]
+    kb = build_keyboard(rows)
+    text = "📰 <b>新聞</b> — 選擇類別："
+    if message_id:
+        edit_message_text(chat_id, message_id, text, reply_markup=kb)
+    else:
+        send_message(chat_id, text, reply_markup=kb)
+
+
+async def _cb_news_notes_list(chat_id, message_id, user_id):
+    """Show date list for news notes (last 3 days)."""
     try:
         from src.core.database import get_notes
         from datetime import timedelta
         cutoff_str = (date.today() - timedelta(days=3)).isoformat()
 
         notes = get_notes("NEWS", "shared")
-        # Collect dates that have any data
         dates_with_data = set()
         for n in notes:
             d = str(n.get("news_date", ""))
             if d >= cutoff_str:
                 dates_with_data.add(d)
 
-        # Build buttons
-        rows = []
-
-        # Weekly digest button (always show if available)
-        try:
-            from src.core.database import get_news_digests
-            digests = get_news_digests()
-            if digests:
-                latest = digests[0]
-                rows.append([("📋 本週重點", f"news_digest_{latest['id']}")])
-        except Exception:
-            pass
-
-        if not dates_with_data and not rows:
-            kb = None
-            msg = "📰 近 3 日無新聞資料。"
-            if message_id:
-                edit_message_text(chat_id, message_id, msg, reply_markup=kb)
-            else:
-                send_message(chat_id, msg, reply_markup=kb)
+        if not dates_with_data:
+            edit_message_text(chat_id, message_id, "📰 近 3 日無新聞備註。",
+                              reply_markup=build_keyboard([[("🔙 返回", "news")]]))
             return
 
-        # One button per date
+        rows = []
         for d in sorted(dates_with_data, reverse=True):
             rows.append([(f"📅 {d}", f"news_date_{d}")])
+        rows.append([("🔙 返回", "news")])
 
         kb = build_keyboard(rows)
-        text = "📰 <b>新聞</b> — 選擇日期："
-        if message_id:
-            edit_message_text(chat_id, message_id, text, reply_markup=kb)
-        else:
-            send_message(chat_id, text, reply_markup=kb)
+        text = "📰 <b>新聞備註</b> — 選擇日期："
+        edit_message_text(chat_id, message_id, text, reply_markup=kb)
     except Exception as e:
-        logger.error(f"News entry failed: {e}")
-        kb = None
-        if message_id:
-            edit_message_text(chat_id, message_id, f"❌ 載入失敗：{e}", reply_markup=kb)
-        else:
-            send_message(chat_id, f"❌ 載入失敗：{e}", reply_markup=kb)
+        logger.error(f"News notes list failed: {e}")
+        edit_message_text(chat_id, message_id, f"❌ 載入失敗：{e}",
+                          reply_markup=build_keyboard([[("🔙 返回", "news")]]))
+
+
+async def _cb_news_digest_list(chat_id, message_id, user_id):
+    """Show weekly digest list (last 3 issues)."""
+    try:
+        from src.core.database import get_news_digests
+
+        digests = get_news_digests()
+        if not digests:
+            edit_message_text(chat_id, message_id, "📋 尚無本週重點資料。",
+                              reply_markup=build_keyboard([[("🔙 返回", "news")]]))
+            return
+
+        rows = []
+        for d in digests[:3]:
+            week_start = str(d.get("week_start", ""))
+            week_end = str(d.get("week_end", ""))
+            # Format: "2026-08-03 ~ 08/09"
+            if week_start and week_end:
+                label = f"📅 {week_start} ~ {week_end[5:]}"
+            else:
+                label = d.get("title", "週報")[:30]
+            rows.append([(label, f"news_digest_{d['id']}")])
+        rows.append([("🔙 返回", "news")])
+
+        kb = build_keyboard(rows)
+        text = "📋 <b>本週重點</b> — 選擇期數："
+        edit_message_text(chat_id, message_id, text, reply_markup=kb)
+    except Exception as e:
+        logger.error(f"News digest list failed: {e}")
+        edit_message_text(chat_id, message_id, f"❌ 載入失敗：{e}",
+                          reply_markup=build_keyboard([[("🔙 返回", "news")]]))
 
 
 async def _cb_news_date(chat_id, message_id, user_id, target_date):
@@ -1460,7 +1488,7 @@ async def _cb_news_digest(chat_id, message_id, user_id, data: str):
         if not digest or not digest.get("content"):
             edit_message_text(chat_id, message_id,
                               "📋 無本週重點資料。",
-                              reply_markup=build_keyboard([[("🔙 返回", "news")]]))
+                              reply_markup=build_keyboard([[("🔙 返回", "news_digests")]]))
             return
 
         title = digest.get("title", "本週重點")
@@ -1481,11 +1509,11 @@ async def _cb_news_digest(chat_id, message_id, user_id, data: str):
             text = text[:3900] + "\n\n... (內容過長已截斷)"
 
         edit_message_text(chat_id, message_id, text,
-                          reply_markup=build_keyboard([[("🔙 返回", "news")]]))
+                          reply_markup=build_keyboard([[("🔙 返回", "news_digests")]]))
     except Exception as e:
         logger.error(f"News digest failed: {e}")
         edit_message_text(chat_id, message_id, f"❌ 載入失敗：{e}",
-                          reply_markup=build_keyboard([[("🔙 返回", "news")]]))
+                          reply_markup=build_keyboard([[("🔙 返回", "news_digests")]]))
 
 
 def _cb_help(chat_id, message_id):
