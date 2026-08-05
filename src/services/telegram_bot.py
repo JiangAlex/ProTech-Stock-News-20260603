@@ -347,6 +347,9 @@ async def handle_callback_query(callback_query: dict):
     elif data.startswith("stock_ai_"):
         await _cb_stock_ai(chat_id, message_id, user_id, data)
 
+    elif data.startswith("stk_sec_"):
+        await _cb_stock_section(chat_id, message_id, user_id, data)
+
     elif data == "wl":
         await _cb_watchlist_entry(chat_id, message_id, user_id)
 
@@ -529,7 +532,7 @@ async def _cb_stock_add(chat_id, message_id, user_id, data: str):
 
 
 async def _cb_stock_ai(chat_id, message_id, user_id, data: str):
-    """Run AI analysis on stock."""
+    """Run AI analysis on stock — split result by framework sections with inline buttons."""
     code = data.replace("stock_ai_", "")
     send_message(chat_id, f"🤖 正在分析 <b>{code}</b>，請稍候（約 10-30 秒）...")
 
@@ -550,26 +553,191 @@ async def _cb_stock_ai(chat_id, message_id, user_id, data: str):
             if s["code"] == code:
                 _stock_name = s["name"]
                 break
-        result = analyze_kline(code, _stock_name, kline, user_id=get_app_user(user_id))
-        if result and result.get("analysis"):
-            analysis_text = result["analysis"]
-            # Telegram message limit is 4096 chars
-            if len(analysis_text) > 3800:
-                analysis_text = analysis_text[:3800] + "\n\n... (內容過長已截斷)"
-            # Escape HTML special chars in AI output to avoid 400 Bad Request
+
+        app_user = get_app_user(user_id)
+        result = analyze_kline(code, _stock_name, kline, user_id=app_user)
+        if not result or not result.get("analysis"):
+            send_message(chat_id, f"❌ {code} AI 分析無結果")
+            return
+
+        analysis_text = result["analysis"]
+
+        # Parse framework section names from user settings
+        section_names = _get_framework_section_names(app_user)
+
+        # Split analysis by section names
+        sections = _split_analysis_by_sections(analysis_text, section_names)
+
+        if len(sections) <= 1:
+            # Cannot split — send as single message
             import html as _html
             safe_text = _html.escape(analysis_text)
-            resp = send_message(chat_id, f"🤖 <b>{code} AI 技術分析</b>\n\n{safe_text}",
-                         reply_markup=None)
-            # Fallback: if HTML parse failed, retry without parse_mode
+            if len(safe_text) > 3800:
+                safe_text = safe_text[:3800] + "\n\n... (內容過長已截斷)"
+            resp = send_message(chat_id, f"🤖 <b>{code} AI 技術分析</b>\n\n{safe_text}")
             if resp is None:
-                send_message(chat_id, f"🤖 {code} AI 技術分析\n\n{analysis_text}",
-                             reply_markup=None, parse_mode="")
-        else:
-            send_message(chat_id, f"❌ {code} AI 分析無結果")
+                send_message(chat_id, f"🤖 {code} AI 技術分析\n\n{analysis_text}", parse_mode="")
+            return
+
+        # Store sections in cache for button switching
+        cache_key = f"{chat_id}_{code}"
+        _ai_section_cache[cache_key] = {
+            "code": code,
+            "name": _stock_name,
+            "sections": sections,
+        }
+
+        # Send first section with navigation buttons
+        _send_ai_section(chat_id, None, code, _stock_name, sections, 0)
+
     except Exception as e:
         logger.error(f"AI analysis failed for {code}: {e}")
         send_message(chat_id, f"❌ AI 分析失敗：{e}")
+
+
+# Per-chat AI analysis section cache
+# key: "{chat_id}_{code}" → {"code", "name", "sections": [(title, content), ...]}
+_ai_section_cache: Dict[str, dict] = {}
+
+
+def _get_framework_section_names(user_id: str) -> list:
+    """Extract section names from user's analysis framework (e.g. ['趨勢判斷', '關鍵價位', ...])."""
+    import re
+    try:
+        from src.core.database import get_analysis_preferences
+        prefs = get_analysis_preferences(user_id)
+        framework = prefs.get("analysis_framework", "").strip()
+    except Exception:
+        framework = ""
+
+    if not framework:
+        framework = """1. **趨勢判斷**：{根據均線排列、價格位置判斷上升/下降/盤整}
+2. **關鍵價位**：{找出支撐位與壓力位}
+3. **指標解讀**：{解讀 MACD/量能}
+4. **型態分析**：{分析偵測到的K線型態意義}
+5. **綜合判斷**：{給出20日,60日操作方向}"""
+
+    # Extract names between ** **
+    names = re.findall(r'\*\*(.+?)\*\*', framework)
+    return names if names else ["分析結果"]
+
+
+def _split_analysis_by_sections(analysis_text: str, section_names: list) -> list:
+    """Split AI analysis text by section names.
+
+    Returns list of (title, content) tuples.
+    """
+    import re
+
+    if not section_names:
+        return [("分析結果", analysis_text)]
+
+    # Build pattern to split by section headers
+    # AI output typically contains: "1. **趨勢判斷**：" or "**趨勢判斷**" or "1. 趨勢判斷："
+    # We match any of these patterns
+    split_points = []
+    for name in section_names:
+        # Find position of this section name in text
+        # Try patterns: "**name**", "name：", "name:"
+        patterns = [
+            re.escape(f"**{name}**"),
+            re.escape(f"*{name}*"),
+            r'\d+[\.\)、]\s*' + re.escape(f"**{name}**"),
+            r'\d+[\.\)、]\s*' + re.escape(name),
+        ]
+        for pat in patterns:
+            m = re.search(pat, analysis_text)
+            if m:
+                split_points.append((m.start(), name))
+                break
+
+    if not split_points:
+        return [("分析結果", analysis_text)]
+
+    # Sort by position
+    split_points.sort(key=lambda x: x[0])
+
+    # Extract sections
+    sections = []
+
+    # If there's content before the first section (e.g. core conclusion)
+    if split_points[0][0] > 0:
+        preamble = analysis_text[:split_points[0][0]].strip()
+        if preamble:
+            sections.append(("核心結論", preamble))
+
+    for i, (pos, name) in enumerate(split_points):
+        end_pos = split_points[i + 1][0] if i + 1 < len(split_points) else len(analysis_text)
+        content = analysis_text[pos:end_pos].strip()
+        sections.append((name, content))
+
+    return sections if sections else [("分析結果", analysis_text)]
+
+
+def _send_ai_section(chat_id, message_id, code: str, stock_name: str,
+                     sections: list, current_idx: int):
+    """Send or edit message to show a specific section with navigation buttons."""
+    import html as _html
+
+    title, content = sections[current_idx]
+    safe_content = _html.escape(content)
+    if len(safe_content) > 3800:
+        safe_content = safe_content[:3800] + "\n... (截斷)"
+
+    header = f"🤖 <b>{code} {_html.escape(stock_name)}</b> — {_html.escape(title)}\n"
+    page_info = f"({current_idx + 1}/{len(sections)})"
+    text = f"{header}{page_info}\n\n{safe_content}"
+
+    # Build section buttons (2 per row)
+    rows = []
+    row = []
+    for i, (sec_title, _) in enumerate(sections):
+        label = f"{'✅ ' if i == current_idx else ''}{sec_title}"
+        # Telegram callback_data max 64 bytes
+        cb_data = f"stk_sec_{code}_{i}"
+        if len(cb_data) > 64:
+            cb_data = cb_data[:64]
+        row.append((label, cb_data))
+        if len(row) == 3:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+
+    kb = build_keyboard(rows)
+
+    if message_id:
+        resp = edit_message_text(chat_id, message_id, text, reply_markup=kb)
+        if resp is None:
+            # Fallback: send new message
+            send_message(chat_id, text, reply_markup=kb)
+    else:
+        send_message(chat_id, text, reply_markup=kb)
+
+
+async def _cb_stock_section(chat_id, message_id, user_id, data: str):
+    """Handle section button press — switch displayed AI analysis section."""
+    # data format: stk_sec_{code}_{idx}
+    parts = data.replace("stk_sec_", "").rsplit("_", 1)
+    if len(parts) != 2:
+        return
+    code = parts[0]
+    try:
+        idx = int(parts[1])
+    except ValueError:
+        return
+
+    cache_key = f"{chat_id}_{code}"
+    cached = _ai_section_cache.get(cache_key)
+    if not cached:
+        send_message(chat_id, "⚠️ 分析資料已過期，請重新執行 AI 分析。")
+        return
+
+    sections = cached["sections"]
+    if idx < 0 or idx >= len(sections):
+        return
+
+    _send_ai_section(chat_id, message_id, code, cached["name"], sections, idx)
 
 
 async def _cb_watchlist_entry(chat_id, message_id, user_id):
