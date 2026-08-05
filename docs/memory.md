@@ -28,13 +28,22 @@ src/
 ├── services/
 │   ├── yahoo_service.py    # Hot stocks + Revenue + Dividend + Rank
 │   ├── semantic_search.py  # AI 搜尋 + 問答 (MiniMax M2.7)
+│   ├── kline_analysis.py   # K線 AI 技術分析
 │   ├── news_digest.py      # 週報摘要生成
+│   ├── finance_news.py     # 每日財經新聞 + AI 盤後分析
+│   ├── weekly_analysis.py  # 每週自選股批次 AI 分析
 │   ├── alert_engine.py     # 警示引擎
 │   ├── backtest_engine.py  # 回測引擎
 │   ├── realtime_quote.py   # 即時報價
 │   ├── us_index_service.py # 美股指數
+│   ├── market_scan.py      # 全市場掃描
 │   ├── image_analysis.py   # 圖片 OCR + AI 分析
-│   └── telegram_service.py # Telegram 通知
+│   ├── chart_service.py    # MA 均線圖生成
+│   ├── telegram_bot.py     # Telegram Bot 雙向互動
+│   ├── telegram_service.py # Telegram 通知發送
+│   ├── portfolio_advisor.py # 持股分析
+│   ├── concept_service.py  # 概念股/題材股
+│   └── industry_service.py # 產業分類
 ├── server.py            # FastAPI
 └── templates/
     └── index.html       # Dashboard SPA
@@ -62,6 +71,10 @@ src/
 | AI 新聞搜尋 | MiniMax M2.7 語意搜尋 + 問答 |
 | 週報摘要 | 自動生成每週新聞重點 |
 | 圖片分析 | OCR + AI 辨識圖片內容 |
+| 每日財經新聞 | 每小時抓取 + PM 5:00 AI 盤後分析 + Telegram 推播 |
+| 每週自選股分析 | 週日 AI 批次分析 + 趨勢追蹤 |
+| Telegram Bot | 雙向互動（查股票/自選股/掃描/持股分析/新聞）|
+| Telegram 設定 | WEB 設定頁面填寫 Bot Token + Chat ID + 測試發送 |
 
 ### API Endpoints
 
@@ -84,6 +97,9 @@ src/
 | PUT | `/api/alerts/settings` | 更新警示設定 |
 | POST | `/api/backtest` | 執行回測 |
 | GET | `/api/usindex/{symbol}/kline?period=&days=` | 美股指數 K 線 |
+| GET | `/api/telegram/settings` | Telegram 設定 |
+| PUT | `/api/telegram/settings` | 更新 Telegram 設定 |
+| POST | `/api/telegram/test` | 測試 Telegram 發送 |
 | GET | `/api/notes/ask?q=` | AI 新聞問答 |
 | GET | `/api/notes/search?q=` | AI 新聞搜尋 |
 
@@ -328,3 +344,35 @@ src/services/
 | 每日 18:00 | 警示引擎 | `alert_engine` |
 | 每日 18:00 | 全市場掃描 | `market_scan` |
 | **週日 18:00** | **週報摘要 + 自選股&指數 AI 分析** | **`news_digest` + `weekly_analysis`** |
+
+---
+
+## 六、Telegram Bot 設定移至 WEB UI
+
+> 實作日期：2026-08-05
+
+### 6.1 變更說明
+
+將 Telegram Bot Token / Chat ID 從環境變數（`.env`）改為 WEB 設定頁面填寫，採用個人使用模式。
+
+**之前**：透過 `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` 環境變數設定。
+
+**之後**：在 Dashboard「⚙ 設定」面板中直接填寫 Bot Token 和 Chat ID，支援測試發送驗證。
+
+### 6.2 異動檔案
+
+| 檔案 | 變更 |
+|------|------|
+| `src/server.py` | 新增 `GET/PUT /api/telegram/settings` + `POST /api/telegram/test` |
+| `src/services/telegram_bot.py` | Lazy-load config from DB（`_ensure_config`）+ `reload_bot_config()` |
+| `src/services/finance_news.py` | 改從 `get_alert_settings("default")` 讀取 Token |
+| `src/services/weekly_analysis.py` | 同上 |
+| `src/templates/index.html` | 設定面板新增 Telegram 區塊（Token/Chat ID 輸入 + 測試按鈕） |
+
+### 6.3 DB 儲存
+
+利用現有 `alert_settings` 表的 `telegram_bot_token` / `telegram_chat_id` 欄位（per `user_id`），不需新建表。
+
+### 6.4 向後相容
+
+`database.py` 的 `get_alert_settings()` 保留 env var fallback：若 DB 中為空則讀取 `.env` 環境變數。

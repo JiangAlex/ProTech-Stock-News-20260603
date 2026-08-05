@@ -1114,6 +1114,51 @@ def api_delete_alert(alert_id: int, user: str = Query("default")):
     return {"ok": True}
 
 
+# --- Telegram Settings ---
+
+@app.get("/api/telegram/settings")
+def api_get_telegram_settings(user: str = Query("default")):
+    """Get user's Telegram Bot Token and Chat ID."""
+    settings = get_alert_settings(user)
+    return {
+        "telegram_bot_token": settings.get("telegram_bot_token", ""),
+        "telegram_chat_id": settings.get("telegram_chat_id", ""),
+    }
+
+
+@app.put("/api/telegram/settings")
+def api_put_telegram_settings(body: dict):
+    """Save user's Telegram Bot Token and Chat ID."""
+    user = body.get("user", "default")
+    token = body.get("telegram_bot_token", "").strip()
+    chat_id = body.get("telegram_chat_id", "").strip()
+    # Preserve existing run_time
+    existing = get_alert_settings(user)
+    update_alert_settings(
+        user_id=user,
+        run_time=existing.get("run_time", "18:00"),
+        telegram_bot_token=token,
+        telegram_chat_id=chat_id,
+    )
+    return {"ok": True}
+
+
+@app.post("/api/telegram/test")
+def api_test_telegram(body: dict):
+    """Send a test message to verify Telegram settings."""
+    from src.services.telegram_service import send_telegram_message
+    token = body.get("telegram_bot_token", "").strip()
+    chat_id = body.get("telegram_chat_id", "").strip()
+    if not token or not chat_id:
+        return {"ok": False, "error": "請填寫 Bot Token 和 Chat ID"}
+    msg = "✅ ProTech 測試訊息 — Telegram 設定成功！"
+    success = send_telegram_message(token, chat_id, msg)
+    if success:
+        return {"ok": True}
+    else:
+        return {"ok": False, "error": "發送失敗，請檢查 Token 和 Chat ID 是否正確"}
+
+
 # --- Semantic Search ---
 
 @app.get("/api/notes/search")

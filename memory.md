@@ -139,7 +139,13 @@ user_states = {}
 - `src/services/chart_service.py` — MA 均線圖生成
 
 ### 修改檔案
-- `src/server.py` — startup 加入 bot polling task + 新增 /api/discussions API
+- `src/server.py` — startup 加入 bot polling task + 新增 /api/discussions API + 新增 /api/telegram/settings、/api/telegram/test API
 - `src/core/database.py` — 新增 telegram_discussions 表 CRUD
-- `src/templates/index.html` — 新增浮動面板
+- `src/templates/index.html` — 新增浮動面板 + 設定面板 Telegram 區塊（Bot Token / Chat ID 輸入 + 測試按鈕）
 - `requirements.txt` — 新增 matplotlib==3.9.0
+
+### Telegram Bot 設定
+- Bot Token / Chat ID 改為 WEB 設定頁面填寫（個人使用模式）
+- 儲存於 `alert_settings` 表（per user_id）
+- `telegram_bot.py` 透過 `_ensure_config()` lazy-load from DB
+- 保留環境變數 fallback（向後相容）

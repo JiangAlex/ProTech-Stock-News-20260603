@@ -18,8 +18,38 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-GROUP_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+# Load from DB (default user) with env var fallback
+def _load_bot_config():
+    """Load Telegram bot config from DB, fallback to env vars."""
+    try:
+        from src.core.database import get_alert_settings
+        settings = get_alert_settings("default")
+        token = settings.get("telegram_bot_token", "") or ""
+        chat_id = settings.get("telegram_chat_id", "") or ""
+        return token, chat_id
+    except Exception:
+        return os.getenv("TELEGRAM_BOT_TOKEN", ""), os.getenv("TELEGRAM_CHAT_ID", "")
+
+
+# Module-level config (loaded lazily on first use)
+_bot_config_loaded = False
+BOT_TOKEN = ""
+GROUP_CHAT_ID = ""
+
+
+def _ensure_config():
+    """Lazy-load bot config on first use."""
+    global _bot_config_loaded, BOT_TOKEN, GROUP_CHAT_ID
+    if not _bot_config_loaded:
+        BOT_TOKEN, GROUP_CHAT_ID = _load_bot_config()
+        _bot_config_loaded = True
+
+
+def reload_bot_config():
+    """Reload bot config from DB (called when settings are updated)."""
+    global _bot_config_loaded, BOT_TOKEN, GROUP_CHAT_ID
+    BOT_TOKEN, GROUP_CHAT_ID = _load_bot_config()
+    _bot_config_loaded = True
 
 # Telegram user_id → app username mapping (via DB)
 def get_app_user(tg_user_id: int) -> str:
@@ -43,6 +73,7 @@ scan_states: Dict[int, dict] = {}
 
 def _api_call(method: str, data: dict = None, files: dict = None) -> Optional[dict]:
     """Call Telegram Bot API. Supports JSON data or multipart (for sendPhoto)."""
+    _ensure_config()
     if not BOT_TOKEN:
         logger.warning("TELEGRAM_BOT_TOKEN not set")
         return None
@@ -511,7 +542,15 @@ async def _cb_stock_ai(chat_id, message_id, user_id, data: str):
             send_message(chat_id, f"❌ 找不到 {code} 的資料")
             return
 
-        result = analyze_kline(kline, code, user_id=get_app_user(user_id))
+        # Get stock name
+        from src.core.pg_client import get_all_stocks as _get_stocks
+        _stocks = _get_stocks()
+        _stock_name = ""
+        for s in _stocks:
+            if s["code"] == code:
+                _stock_name = s["name"]
+                break
+        result = analyze_kline(code, _stock_name, kline, user_id=get_app_user(user_id))
         if result and result.get("analysis"):
             analysis_text = result["analysis"]
             # Telegram message limit is 4096 chars
@@ -1306,6 +1345,7 @@ async def run_polling(executor=None):
         executor: Optional ThreadPoolExecutor for blocking HTTP calls.
                   If None, uses the default event loop executor.
     """
+    _ensure_config()
     if not BOT_TOKEN:
         logger.warning("TELEGRAM_BOT_TOKEN not set, polling disabled")
         return

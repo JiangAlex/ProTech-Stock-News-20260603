@@ -195,6 +195,23 @@
             <span id="prefSaveStatus" style="font-size:10px;color:#6b7a8d;margin-left:8px;"></span>
         </div>
     </div>
+    <div class="settings-row" style="align-items:flex-start;">
+        <strong>📨 Telegram：</strong>
+        <div style="flex:1;font-size:11px;">
+            <div style="display:grid;grid-template-columns:80px 1fr;gap:4px 8px;margin-bottom:4px;">
+                <label style="color:#8b9dc3;">Bot Token</label>
+                <input id="tgBotToken" type="password" placeholder="輸入 Bot Token" style="padding:2px 6px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;width:260px;">
+                <label style="color:#8b9dc3;">Chat ID</label>
+                <input id="tgChatId" placeholder="輸入 Chat ID" style="padding:2px 6px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px;width:180px;">
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;">
+                <button class="btn btn-s" onclick="saveTelegramSettings()" style="font-size:10px;">💾 儲存</button>
+                <button class="btn btn-s" onclick="testTelegram()" style="font-size:10px;background:#1a3a4a;border-color:#4fc3f7;">🔔 測試發送</button>
+                <span id="tgSaveStatus" style="font-size:10px;color:#6b7a8d;margin-left:4px;"></span>
+            </div>
+            <div style="color:#6b7a8d;font-size:10px;margin-top:4px;">用於警示通知、每日新聞、週報等 Telegram 推播。<a href="https://core.telegram.org/bots#how-do-i-create-a-bot" target="_blank" style="color:#4fc3f7;">如何取得 Bot Token？</a></div>
+        </div>
+    </div>
 </div>
 
 <div class="container">
@@ -377,7 +394,7 @@ function switchUser(name){
 }
 
 // --- Settings ---
-function toggleSettings(){ const p=document.getElementById('settingsPanel'); p.style.display=p.style.display==='none'?'block':'none'; if(p.style.display==='block'){loadAlertOverview();loadAnalysisPrefs();} }
+function toggleSettings(){ const p=document.getElementById('settingsPanel'); p.style.display=p.style.display==='none'?'block':'none'; if(p.style.display==='block'){loadAlertOverview();loadAnalysisPrefs();loadTelegramSettings();} }
 async function loadAnalysisPrefs(){
     try{
         const r=await fetch(`/api/analysis-preferences?user=${encodeURIComponent(currentUser)}`);
@@ -410,6 +427,44 @@ async function saveAnalysisPrefs(){
 
 const DEFAULT_FRAMEWORK=`1. **趨勢判斷**：{根據均線排列、價格位置判斷上升/下降/盤整}\n2. **關鍵價位**：{找出支撐位與壓力位}\n3. **指標解讀**：{解讀 MACD/RSI/布林帶/量能}\n4. **型態分析**：{分析偵測到的K線型態意義}\n5. **綜合判斷**：{給出短線1-5日與中線5-20日操作方向}`;
 const DEFAULT_PORTFOLIO_FRAMEWORK=`1. **部位總覽**：{總成本/現值/未實現損益/報酬率}\n2. **產業集中度**：{各產業占比，是否過度集中某一產業}\n3. **個股強弱排序**：{依技術面排序，哪些轉強/轉弱}\n4. **風險提示**：{超買/跌破均線/虧損過大/量能異常的個股}\n5. **操作建議**：{加碼/減碼/停損/換股方向}`;
+
+// --- Telegram Settings ---
+async function loadTelegramSettings(){
+    try{
+        const r=await fetch(`/api/telegram/settings?user=${encodeURIComponent(currentUser)}`);
+        const d=await r.json();
+        document.getElementById('tgBotToken').value=d.telegram_bot_token||'';
+        document.getElementById('tgChatId').value=d.telegram_chat_id||'';
+    }catch(e){}
+}
+async function saveTelegramSettings(){
+    const st=document.getElementById('tgSaveStatus');
+    try{
+        const r=await fetch('/api/telegram/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+            user:currentUser,
+            telegram_bot_token:document.getElementById('tgBotToken').value.trim(),
+            telegram_chat_id:document.getElementById('tgChatId').value.trim(),
+        })});
+        const d=await r.json();
+        if(d.ok) st.innerHTML='<span style="color:#26a69a;">✅ 已儲存</span>';
+        else st.innerHTML='<span style="color:#ef5350;">儲存失敗</span>';
+    }catch(e){st.innerHTML='<span style="color:#ef5350;">儲存失敗</span>';}
+    setTimeout(()=>{st.innerHTML='';},3000);
+}
+async function testTelegram(){
+    const st=document.getElementById('tgSaveStatus');
+    const token=document.getElementById('tgBotToken').value.trim();
+    const chatId=document.getElementById('tgChatId').value.trim();
+    if(!token||!chatId){st.innerHTML='<span style="color:#ef5350;">請先填寫 Token 和 Chat ID</span>';setTimeout(()=>{st.innerHTML='';},3000);return;}
+    st.innerHTML='<span style="color:#4fc3f7;">發送中...</span>';
+    try{
+        const r=await fetch('/api/telegram/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_bot_token:token,telegram_chat_id:chatId})});
+        const d=await r.json();
+        if(d.ok) st.innerHTML='<span style="color:#26a69a;">✅ 測試成功！請檢查 Telegram</span>';
+        else st.innerHTML=`<span style="color:#ef5350;">❌ ${d.error||'發送失敗'}</span>`;
+    }catch(e){st.innerHTML='<span style="color:#ef5350;">❌ 連線失敗</span>';}
+    setTimeout(()=>{st.innerHTML='';},5000);
+}
 
 function renderMASettings(){
     const c=document.getElementById('maSettings');

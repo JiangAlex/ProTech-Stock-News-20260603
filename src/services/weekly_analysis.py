@@ -255,8 +255,16 @@ def run_weekly_watchlist_analysis() -> dict:
 
     # Send Telegram summary
     if analysis_results:
-        bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+        bot_token = ""
+        chat_id = ""
+        try:
+            from src.core.database import get_alert_settings
+            _tg_settings = get_alert_settings("default")
+            bot_token = _tg_settings.get("telegram_bot_token", "")
+            chat_id = _tg_settings.get("telegram_chat_id", "")
+        except Exception:
+            bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+            chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
 
         # Build summary message
         today_display = date.today().strftime("%Y/%m/%d")

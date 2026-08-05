@@ -660,8 +660,16 @@ def run_daily_ai_analysis() -> dict:
     # 組成 news_items 格式給 AI 分析
     news_items = [{"title": t, "source": "", "url": "", "category": ""} for t in existing_titles]
 
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+    bot_token = ""
+    chat_id = ""
+    try:
+        from src.core.database import get_alert_settings
+        _tg_settings = get_alert_settings("default")
+        bot_token = _tg_settings.get("telegram_bot_token", "")
+        chat_id = _tg_settings.get("telegram_chat_id", "")
+    except Exception:
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
 
     # AI 分析
     analysis = analyze_finance_news_ai(news_items)

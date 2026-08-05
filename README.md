@@ -16,6 +16,7 @@
 - **漲跌幅排行**：上市/上櫃 漲幅排行、跌幅排行
 - **個股新聞**：外連 Yahoo News 搜尋
 - **每日財經新聞**：每日 PM 5:00 自動抓取鉅亨網/Yahoo奇摩股市/CMoney 熱門即時新聞&產業分析 10 條 → Telegram 推播 + AI 盤後分析
+- **Telegram Bot**：雙向互動（查股票/自選股/掃描/持股分析/新聞），WEB 設定頁面填寫 Bot Token + Chat ID
 
 ## 快速啟動
 
@@ -49,9 +50,17 @@ python -m src.server
 | PUT | `/api/alerts/settings` | 更新警示設定 |
 | POST | `/api/backtest` | 執行回測 |
 | GET | `/api/usindex/{symbol}/kline?period=&days=` | 美股指數 K 線 |
+| GET | `/api/telegram/settings` | Telegram 設定 |
+| PUT | `/api/telegram/settings` | 更新 Telegram 設定 |
+| POST | `/api/telegram/test` | 測試 Telegram 發送 |
 
 ## 資料來源
 
 - PostgreSQL (ProTech-QuantStockDB) — K 線、營收、獲利、自選股、交易記錄、備註、餘額、排行榜、警示、美股指數
 - Yahoo Stock — 社群爆紅榜
 - Yahoo Finance API — 美股指數歷史資料
+
+## Communication
+
+- **技術解釋**使用「繁體中文」
+- **變數名稱**、**函數名稱**與**代碼註釋**必須保持英文
