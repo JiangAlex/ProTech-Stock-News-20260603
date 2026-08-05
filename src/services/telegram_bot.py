@@ -418,6 +418,9 @@ async def handle_callback_query(callback_query: dict):
         target_date = data.replace("news_date_", "")
         await _cb_news_date(chat_id, message_id, user_id, target_date)
 
+    elif data.startswith("news_digest_"):
+        await _cb_news_digest(chat_id, message_id, user_id, data)
+
     elif data == "help":
         _cb_help(chat_id, message_id)
 
@@ -1235,7 +1238,7 @@ async def _cb_portfolio(chat_id, message_id, user_id):
 
 
 async def _cb_news_entry(chat_id, message_id, user_id):
-    """Layer 1: Show date buttons (last 3 days)."""
+    """Layer 1: Show date buttons (last 3 days) + weekly digest."""
     try:
         from src.core.database import get_notes
         from datetime import timedelta
@@ -1249,7 +1252,20 @@ async def _cb_news_entry(chat_id, message_id, user_id):
             if d >= cutoff_str:
                 dates_with_data.add(d)
 
-        if not dates_with_data:
+        # Build buttons
+        rows = []
+
+        # Weekly digest button (always show if available)
+        try:
+            from src.core.database import get_news_digests
+            digests = get_news_digests()
+            if digests:
+                latest = digests[0]
+                rows.append([("📋 本週重點", f"news_digest_{latest['id']}")])
+        except Exception:
+            pass
+
+        if not dates_with_data and not rows:
             kb = None
             msg = "📰 近 3 日無新聞資料。"
             if message_id:
@@ -1259,7 +1275,6 @@ async def _cb_news_entry(chat_id, message_id, user_id):
             return
 
         # One button per date
-        rows = []
         for d in sorted(dates_with_data, reverse=True):
             rows.append([(f"📅 {d}", f"news_date_{d}")])
 
@@ -1427,6 +1442,50 @@ async def _cb_news_other(chat_id, message_id, user_id, target_date, category):
         edit_message_text(chat_id, message_id, f"❌ 載入失敗：{e}",
                           reply_markup=None)
 
+
+
+async def _cb_news_digest(chat_id, message_id, user_id, data: str):
+    """Show weekly news digest."""
+    digest_id_str = data.replace("news_digest_", "")
+    try:
+        digest_id = int(digest_id_str)
+    except ValueError:
+        return
+
+    try:
+        from src.core.database import get_news_digest_by_id
+        import html as _html
+
+        digest = get_news_digest_by_id(digest_id)
+        if not digest or not digest.get("content"):
+            edit_message_text(chat_id, message_id,
+                              "📋 無本週重點資料。",
+                              reply_markup=build_keyboard([[("🔙 返回", "news")]]))
+            return
+
+        title = digest.get("title", "本週重點")
+        content = digest["content"]
+
+        # Strip markdown formatting for Telegram (** → bold is not supported in HTML mode)
+        # Convert **text** to <b>text</b>
+        import re
+        content = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', content)
+        # Escape remaining HTML-sensitive chars in non-tag content
+        # (simplified: just handle & < > outside our <b> tags)
+        content = content.replace("&", "&amp;")
+        # Don't escape < > in our <b> tags — use a workaround
+        content = re.sub(r'<(?!/?b>)', '&lt;', content)
+
+        text = f"📋 <b>{_html.escape(title)}</b>\n\n{content}"
+        if len(text) > 3900:
+            text = text[:3900] + "\n\n... (內容過長已截斷)"
+
+        edit_message_text(chat_id, message_id, text,
+                          reply_markup=build_keyboard([[("🔙 返回", "news")]]))
+    except Exception as e:
+        logger.error(f"News digest failed: {e}")
+        edit_message_text(chat_id, message_id, f"❌ 載入失敗：{e}",
+                          reply_markup=build_keyboard([[("🔙 返回", "news")]]))
 
 
 def _cb_help(chat_id, message_id):
