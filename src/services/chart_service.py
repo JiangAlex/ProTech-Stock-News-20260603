@@ -12,9 +12,27 @@ import matplotlib
 matplotlib.use("Agg")  # Non-interactive backend
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from matplotlib import font_manager
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+# Register CJK font for Chinese stock names
+_CJK_FONT = None
+for _font_path in [
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Black.ttc",
+    "/usr/share/fonts/truetype/arphic/uming.ttc",
+]:
+    import os as _os
+    if _os.path.exists(_font_path):
+        _CJK_FONT = font_manager.FontProperties(fname=_font_path)
+        break
+
+if _CJK_FONT:
+    plt.rcParams["font.family"] = _CJK_FONT.get_name()
+else:
+    plt.rcParams["font.family"] = ["Noto Sans CJK TC", "Noto Sans CJK SC", "AR PL UMing TW", "sans-serif"]
 
 # Dark theme colors matching the frontend
 BG_COLOR = "#0f1117"

@@ -556,8 +556,15 @@ async def _cb_stock_ai(chat_id, message_id, user_id, data: str):
             # Telegram message limit is 4096 chars
             if len(analysis_text) > 3800:
                 analysis_text = analysis_text[:3800] + "\n\n... (內容過長已截斷)"
-            send_message(chat_id, f"🤖 <b>{code} AI 技術分析</b>\n\n{analysis_text}",
+            # Escape HTML special chars in AI output to avoid 400 Bad Request
+            import html as _html
+            safe_text = _html.escape(analysis_text)
+            resp = send_message(chat_id, f"🤖 <b>{code} AI 技術分析</b>\n\n{safe_text}",
                          reply_markup=None)
+            # Fallback: if HTML parse failed, retry without parse_mode
+            if resp is None:
+                send_message(chat_id, f"🤖 {code} AI 技術分析\n\n{analysis_text}",
+                             reply_markup=None, parse_mode="")
         else:
             send_message(chat_id, f"❌ {code} AI 分析無結果")
     except Exception as e:
@@ -1033,9 +1040,12 @@ async def _cb_portfolio(chat_id, message_id, user_id):
         result = analyze_portfolio(get_app_user(user_id))
 
         if result and result.get("analysis"):
-            text = f"💼 <b>持股分析</b>\n\n{result['analysis']}"
-            if len(text) > 3800:
-                text = text[:3800] + "\n\n... (內容過長已截斷)"
+            import html as _html
+            analysis_content = result['analysis']
+            if len(analysis_content) > 3800:
+                analysis_content = analysis_content[:3800] + "\n\n... (內容過長已截斷)"
+            safe_content = _html.escape(analysis_content)
+            text = f"💼 <b>持股分析</b>\n\n{safe_content}"
             kb = None
             if message_id:
                 edit_message_text(chat_id, message_id, text, reply_markup=kb)
