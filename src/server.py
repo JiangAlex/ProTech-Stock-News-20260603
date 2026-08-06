@@ -75,6 +75,8 @@ async def lifespan(app: FastAPI):
     init_ai_predictions_table()
     background_tasks.append(asyncio.create_task(_daily_prediction_verify_job()))
     background_tasks.append(asyncio.create_task(_weekly_prediction_review_job()))
+    # TWII Intraday 60-min AI Feedback Learning
+    background_tasks.append(asyncio.create_task(_twii_intraday_job()))
     # Telegram Bot polling
     from src.core.database import init_telegram_discussions_table, init_telegram_users_table
     init_telegram_discussions_table()
@@ -234,6 +236,108 @@ async def _weekly_prediction_review_job():
                 _logger.info("Weekly prediction review: no data to report")
         except Exception as e:
             _logger.error(f"Weekly prediction review job error: {e}")
+
+
+async def _twii_intraday_job():
+    """TWII 60-min intraday AI feedback learning: 09:00-13:30 tick + 17:00 integration."""
+    import asyncio
+    from datetime import datetime, timedelta
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+
+    from src.services.twii_intraday import (
+        on_tick, on_market_close, on_daily_integration,
+        ensure_history_available, reset_daily_state,
+    )
+    from src.services.telegram_service import send_telegram_message
+    from src.core.database import get_alert_settings
+
+    # Init: ensure we have historical data
+    try:
+        ensure_history_available()
+    except Exception as e:
+        _logger.error(f"TWII history init error: {e}")
+
+    last_market_close_date = None
+    last_integration_date = None
+
+    while True:
+        now = datetime.now()
+
+        # Only run on weekdays (Mon-Fri)
+        if now.weekday() >= 5:
+            days_until_monday = 7 - now.weekday()
+            next_open = now.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=days_until_monday)
+            await asyncio.sleep((next_open - now).total_seconds())
+            continue
+
+        market_open = now.replace(hour=9, minute=0, second=0, microsecond=0)
+        market_close = now.replace(hour=13, minute=30, second=0, microsecond=0)
+        integration_time = now.replace(hour=17, minute=5, second=0, microsecond=0)
+
+        today_str = now.strftime("%Y-%m-%d")
+
+        if now < market_open:
+            # Before market: reset state for new day
+            if last_market_close_date != today_str:
+                reset_daily_state()
+            await asyncio.sleep((market_open - now).total_seconds())
+            continue
+
+        elif now <= market_close:
+            # Market hours: tick every 60 seconds
+            try:
+                on_tick(now)
+            except Exception as e:
+                _logger.error(f"TWII intraday tick error: {e}")
+            await asyncio.sleep(60)
+
+        elif now > market_close and last_market_close_date != today_str:
+            # Market just closed: run close handler once
+            try:
+                on_market_close(now)
+                last_market_close_date = today_str
+                _logger.info("TWII market close handler completed")
+            except Exception as e:
+                _logger.error(f"TWII market close error: {e}")
+            await asyncio.sleep(60)
+
+        elif now >= integration_time and last_integration_date != today_str:
+            # 17:05: run daily integration (slightly after news AI to avoid conflict)
+            try:
+                report = on_daily_integration()
+                if report:
+                    # Send Telegram
+                    try:
+                        settings = get_alert_settings("default")
+                        bot_token = settings.get("telegram_bot_token", "")
+                        chat_id = settings.get("telegram_chat_id", "")
+                    except Exception:
+                        import os
+                        bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+                        chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+
+                    if bot_token and chat_id:
+                        send_telegram_message(bot_token, chat_id, report)
+                        _logger.info("TWII daily integration report sent to Telegram")
+
+                last_integration_date = today_str
+                _logger.info("TWII daily integration completed")
+            except Exception as e:
+                _logger.error(f"TWII daily integration error: {e}")
+            # Wait until next day
+            next_open = market_open + timedelta(days=1)
+            await asyncio.sleep((next_open - now).total_seconds())
+
+        else:
+            # Between market close and integration time, or after integration
+            if last_integration_date == today_str:
+                # Already done today, wait for tomorrow
+                next_open = market_open + timedelta(days=1)
+                await asyncio.sleep(min((next_open - now).total_seconds(), 3600))
+            else:
+                # Wait for integration time
+                await asyncio.sleep((integration_time - now).total_seconds())
 
 
 async def _weekly_concept_update_job():

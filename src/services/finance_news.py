@@ -517,6 +517,15 @@ def analyze_finance_news_ai(news_items: list[dict]) -> str | None:
 {news_text}
 {industry_section}{concept_section}{rotation_section}"""
 
+    # Inject TWII 60-min intraday feedback if available
+    try:
+        from src.services.twii_intraday import get_intraday_feedback_for_news_ai
+        twii_feedback = get_intraday_feedback_for_news_ai()
+        if twii_feedback:
+            prompt += twii_feedback
+    except Exception:
+        pass
+
     data = json.dumps({
         "model": "MiniMax-M2.7",
         "messages": [{"role": "user", "content": prompt}],
