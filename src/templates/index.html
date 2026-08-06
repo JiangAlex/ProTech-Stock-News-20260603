@@ -212,6 +212,17 @@
             <div style="color:#6b7a8d;font-size:10px;margin-top:4px;">用於警示通知、每日新聞、週報等 Telegram 推播。<a href="https://core.telegram.org/bots#how-do-i-create-a-bot" target="_blank" style="color:#4fc3f7;">如何取得 Bot Token？</a></div>
         </div>
     </div>
+    <div class="settings-row" style="align-items:flex-start;">
+        <strong>📊 AI 準確率：</strong>
+        <div style="flex:1;font-size:11px;">
+            <div id="aiStatsContent" style="color:#8b9dc3;">載入中...</div>
+            <div id="aiStatsDetail" style="display:none;margin-top:8px;max-height:300px;overflow-y:auto;"></div>
+            <div style="margin-top:6px;display:flex;gap:6px;">
+                <button class="btn btn-s" onclick="loadAiStats()" style="font-size:10px;">🔄 重新整理</button>
+                <button class="btn btn-s" id="btnAiDetail" onclick="toggleAiDetail()" style="font-size:10px;background:#1a3a4a;border-color:#4fc3f7;">📋 查看明細</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="container">
@@ -394,7 +405,7 @@ function switchUser(name){
 }
 
 // --- Settings ---
-function toggleSettings(){ const p=document.getElementById('settingsPanel'); p.style.display=p.style.display==='none'?'block':'none'; if(p.style.display==='block'){loadAlertOverview();loadAnalysisPrefs();loadTelegramSettings();} }
+function toggleSettings(){ const p=document.getElementById('settingsPanel'); p.style.display=p.style.display==='none'?'block':'none'; if(p.style.display==='block'){loadAlertOverview();loadAnalysisPrefs();loadTelegramSettings();loadAiStats();} }
 async function loadAnalysisPrefs(){
     try{
         const r=await fetch(`/api/analysis-preferences?user=${encodeURIComponent(currentUser)}`);
@@ -466,6 +477,53 @@ async function testTelegram(){
     setTimeout(()=>{st.innerHTML='';},5000);
 }
 
+// --- AI Prediction Stats ---
+async function loadAiStats(){
+    const el=document.getElementById('aiStatsContent');
+    try{
+        const r=await fetch(`/api/predictions/stats${currentUser&&currentUser!=='default'?'?user='+encodeURIComponent(currentUser):''}`);
+        const s=await r.json();
+        if(!s.total){el.innerHTML='<span style="color:#6b7a8d;">尚無預測紀錄（請先在警示頁面新增「回饋學習」類型）</span>';return;}
+        let html=`<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:6px;">
+            <span>總預測：<b>${s.total}</b> 筆</span>
+            <span>5日勝率：<b style="color:${s.accuracy_5d>=50?'#26a69a':'#ef5350'}">${s.accuracy_5d}%</b> (${s.correct_5d}/${s.verified_5d})</span>
+            <span>20日勝率：<b style="color:${s.accuracy_20d>=50?'#26a69a':'#ef5350'}">${s.accuracy_20d}%</b> (${s.correct_20d}/${s.verified_20d})</span>
+        </div>`;
+        if(s.by_stock&&s.by_stock.length){
+            html+=`<div style="margin-top:4px;"><span style="color:#8b9dc3;">個股排行：</span>`;
+            html+=s.by_stock.slice(0,5).map(st=>`<span style="margin-right:8px;">${st.stock_code} <b style="color:${st.accuracy_5d>=50?'#26a69a':'#ef5350'}">${st.accuracy_5d}%</b>(${st.correct_5d}/${st.verified_5d})</span>`).join('');
+            html+=`</div>`;
+        }
+        el.innerHTML=html;
+    }catch(e){el.innerHTML='<span style="color:#ef5350;">載入失敗</span>';}
+}
+async function toggleAiDetail(){
+    const el=document.getElementById('aiStatsDetail');
+    if(el.style.display!=='none'){el.style.display='none';return;}
+    el.style.display='block';
+    el.innerHTML='<span style="color:#8b9dc3;">載入中...</span>';
+    try{
+        const r=await fetch(`/api/predictions?limit=30${currentUser&&currentUser!=='default'?'&user='+encodeURIComponent(currentUser):''}`);
+        const preds=await r.json();
+        if(!preds.length){el.innerHTML='<span style="color:#6b7a8d;">尚無紀錄</span>';return;}
+        let html=`<table style="width:100%;font-size:10px;border-collapse:collapse;">
+            <tr style="color:#8b9dc3;border-bottom:1px solid #2a2d38;"><th>日期</th><th>股票</th><th>方向</th><th>當時價</th><th>5日後</th><th>報酬率</th><th>結果</th></tr>`;
+        for(const p of preds){
+            const dir=p.direction==='bullish'?'📈偏多':p.direction==='bearish'?'📉偏空':'➖中性';
+            const ret5=p.actual_return_5d!=null?`${p.actual_return_5d>0?'+':''}${p.actual_return_5d}%`:'—';
+            const correct=p.is_correct_5d===true?'<span style="color:#26a69a;">✓</span>':p.is_correct_5d===false?'<span style="color:#ef5350;">✗</span>':'⏳';
+            const retColor=p.actual_return_5d>0?'#ef5350':p.actual_return_5d<0?'#26a69a':'#8b9dc3';
+            const dateStr=p.prediction_date?p.prediction_date.substring(5):'';
+            html+=`<tr style="border-bottom:1px solid #1f222d;">
+                <td>${dateStr}</td><td>${p.stock_code}</td><td>${dir}</td>
+                <td>${p.price_at_prediction||'—'}</td><td>${p.price_after_5d||'—'}</td>
+                <td style="color:${retColor}">${ret5}</td><td>${correct}</td></tr>`;
+        }
+        html+=`</table>`;
+        el.innerHTML=html;
+    }catch(e){el.innerHTML='<span style="color:#ef5350;">載入失敗</span>';}
+}
+
 function renderMASettings(){
     const c=document.getElementById('maSettings');
     c.innerHTML=maLines.map((m,i)=>`<span class="ma-item">
@@ -484,7 +542,7 @@ async function loadAlertOverview(){
     try{
         const alerts=await fetch(U('/api/alerts')).then(r=>r.json());
         if(!alerts.length){container.innerHTML='<span style="color:#6b7a8d;">尚無任何警示設定</span>';return;}
-        const typeLabels={price_above:'股價≥',price_below:'股價≤',change_pct_up:'漲幅≥',change_pct_down:'跌幅≥',ma_cross_up:'MA金叉',ma_cross_down:'MA死叉',volume:'爆量≥'};
+        const typeLabels={price_above:'股價≥',price_below:'股價≤',change_pct_up:'漲幅≥',change_pct_down:'跌幅≥',ma_cross_up:'MA金叉',ma_cross_down:'MA死叉',volume:'爆量≥',ai_feedback:'📊 回饋學習'};
         // Group by stock_code
         const grouped={};
         alerts.forEach(a=>{if(!grouped[a.stock_code])grouped[a.stock_code]=[];grouped[a.stock_code].push(a);});
@@ -1377,7 +1435,7 @@ async function renderAlertPanel(code){
         fetch(U(`/api/alerts?stock_code=${code}`)).then(r=>r.json()),
         fetch(U('/api/alerts/settings')).then(r=>r.json())
     ]);
-    const typeLabels={price_above:'股價 ≥',price_below:'股價 ≤',change_pct_up:'漲幅 ≥',change_pct_down:'跌幅 ≥',ma_cross_up:'MA金叉',ma_cross_down:'MA死叉',volume:'量 ≥ 均量'};
+    const typeLabels={price_above:'股價 ≥',price_below:'股價 ≤',change_pct_up:'漲幅 ≥',change_pct_down:'跌幅 ≥',ma_cross_up:'MA金叉',ma_cross_down:'MA死叉',volume:'量 ≥ 均量',ai_feedback:'📊 回饋學習'};
     body.innerHTML=`
         <div class="alert-form" style="margin-bottom:10px;padding:8px;background:#14161e;border-radius:6px;">
             <div style="margin-bottom:6px;font-weight:600;color:#ffeb3b;">新增條件</div>
@@ -1390,6 +1448,7 @@ async function renderAlertPanel(code){
                     <option value="ma_cross_up">MA金叉(短上穿長)</option>
                     <option value="ma_cross_down">MA死叉(短下穿長)</option>
                     <option value="volume">量 ≥ N倍均量</option>
+                    <option value="ai_feedback">📊 回饋學習</option>
                 </select>
                 <span id="alertParamsArea"></span>
                 <select id="alertRepeat">
@@ -1424,12 +1483,14 @@ function onAlertTypeChange(){
     else if(t==='change_pct_up'||t==='change_pct_down') area.innerHTML='<input type="number" id="alertParam1" placeholder="%" step="0.1" style="width:50px;">';
     else if(t==='ma_cross_up'||t==='ma_cross_down') area.innerHTML='短<input type="number" id="alertParam1" value="5" style="width:35px;">長<input type="number" id="alertParam2" value="20" style="width:35px;">';
     else if(t==='volume') area.innerHTML='<input type="number" id="alertParam1" placeholder="倍" value="2" step="0.5" style="width:45px;">倍';
+    else if(t==='ai_feedback') area.innerHTML='<span style="color:#8b9dc3;font-size:10px;">AI分析時自動記錄預測</span>';
 }
 function formatAlertParams(type,params){
     if(type==='price_above'||type==='price_below') return params.threshold||'';
     if(type==='change_pct_up'||type==='change_pct_down') return (params.threshold||'')+'%';
     if(type==='ma_cross_up'||type==='ma_cross_down') return `MA${params.short_period||5}/MA${params.long_period||20}`;
     if(type==='volume') return (params.multiplier||'')+'倍均量';
+    if(type==='ai_feedback') return '5/20日驗證';
     return JSON.stringify(params);
 }
 async function addAlertItem(code){
@@ -1440,6 +1501,7 @@ async function addAlertItem(code){
     else if(t==='change_pct_up'||t==='change_pct_down') params={threshold:+document.getElementById('alertParam1').value};
     else if(t==='ma_cross_up'||t==='ma_cross_down') params={short_period:+document.getElementById('alertParam1').value,long_period:+document.getElementById('alertParam2').value};
     else if(t==='volume') params={multiplier:+document.getElementById('alertParam1').value};
+    else if(t==='ai_feedback') params={verify_days:[5,20]};
     await fetch('/api/alerts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stock_code:code,alert_type:t,params,repeat_mode:rep,user:currentUser})});
     renderAlertPanel(code);
 }

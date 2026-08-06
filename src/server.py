@@ -70,6 +70,11 @@ async def lifespan(app: FastAPI):
     background_tasks.append(asyncio.create_task(_daily_market_scan_job()))
     background_tasks.append(asyncio.create_task(_daily_finance_news_job()))
     background_tasks.append(asyncio.create_task(_weekly_concept_update_job()))
+    # AI Predictions (Feedback Learning)
+    from src.core.database import init_ai_predictions_table
+    init_ai_predictions_table()
+    background_tasks.append(asyncio.create_task(_daily_prediction_verify_job()))
+    background_tasks.append(asyncio.create_task(_weekly_prediction_review_job()))
     # Telegram Bot polling
     from src.core.database import init_telegram_discussions_table, init_telegram_users_table
     init_telegram_discussions_table()
@@ -126,6 +131,109 @@ async def _telegram_bot_polling():
     """Telegram Bot long polling background task."""
     from src.services.telegram_bot import run_polling
     await run_polling(executor=_bg_executor)
+
+
+async def _daily_prediction_verify_job():
+    """每日 17:00 驗證 AI 預測（5日/20日方向準確率 + 模擬損益）→ Telegram 通知。"""
+    import asyncio
+    from datetime import datetime, timedelta
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+
+    while True:
+        now = datetime.now()
+        # Next 17:00
+        target = now.replace(hour=17, minute=0, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+        await asyncio.sleep((target - now).total_seconds())
+
+        try:
+            from src.services.prediction_verifier import run_daily_verification
+            from src.services.telegram_service import send_telegram_message
+            from src.core.database import get_alert_settings
+
+            result = run_daily_verification()
+            _logger.info(
+                f"Prediction verify done: "
+                f"5d={result['5d']['verified']}v/{result['5d']['correct']}c "
+                f"20d={result['20d']['verified']}v/{result['20d']['correct']}c"
+            )
+
+            # Telegram 通知（有驗證結果才發）
+            total_verified = result['5d']['verified'] + result['20d']['verified']
+            if total_verified > 0:
+                total_correct = result['5d']['correct'] + result['20d']['correct']
+                accuracy = round(total_correct / total_verified * 100, 1) if total_verified else 0
+                msg = (
+                    f"📊 <b>AI 預測每日驗證</b>\n\n"
+                    f"5日驗證：{result['5d']['verified']} 筆"
+                    f"（✓{result['5d']['correct']} ✗{result['5d']['incorrect']}）\n"
+                    f"20日驗證：{result['20d']['verified']} 筆"
+                    f"（✓{result['20d']['correct']} ✗{result['20d']['incorrect']}）\n\n"
+                    f"今日準確率：<b>{accuracy}%</b>"
+                )
+                try:
+                    settings = get_alert_settings("default")
+                    bot_token = settings.get("telegram_bot_token", "")
+                    chat_id = settings.get("telegram_chat_id", "")
+                    if bot_token and chat_id:
+                        send_telegram_message(bot_token, chat_id, msg)
+                except Exception:
+                    import os
+                    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+                    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+                    if bot_token and chat_id:
+                        send_telegram_message(bot_token, chat_id, msg)
+        except Exception as e:
+            _logger.error(f"Prediction verify job error: {e}")
+
+
+async def _weekly_prediction_review_job():
+    """每週一 8:30 推播 AI 預測週回顧報告。"""
+    import asyncio
+    from datetime import datetime, timedelta
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+
+    while True:
+        now = datetime.now()
+        # Next Monday 08:30
+        days_until_monday = (7 - now.weekday()) % 7
+        if days_until_monday == 0 and (now.hour > 8 or (now.hour == 8 and now.minute >= 30)):
+            days_until_monday = 7
+        target = (now + timedelta(days=days_until_monday)).replace(
+            hour=8, minute=30, second=0, microsecond=0
+        )
+        wait_seconds = (target - now).total_seconds()
+        _logger.info(f"Weekly prediction review: next run at {target} (wait {wait_seconds:.0f}s)")
+        await asyncio.sleep(wait_seconds)
+
+        try:
+            from src.services.prediction_verifier import weekly_prediction_review
+            from src.services.telegram_service import send_telegram_message
+            from src.core.database import get_alert_settings
+            import os
+
+            review = weekly_prediction_review()
+            if review:
+                try:
+                    settings = get_alert_settings("default")
+                    bot_token = settings.get("telegram_bot_token", "")
+                    chat_id = settings.get("telegram_chat_id", "")
+                except Exception:
+                    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+                    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+
+                if bot_token and chat_id:
+                    send_telegram_message(bot_token, chat_id, review)
+                    _logger.info("Weekly prediction review sent to Telegram")
+                else:
+                    _logger.warning("Weekly prediction review: no Telegram config")
+            else:
+                _logger.info("Weekly prediction review: no data to report")
+        except Exception as e:
+            _logger.error(f"Weekly prediction review job error: {e}")
 
 
 async def _weekly_concept_update_job():
@@ -1112,6 +1220,23 @@ def api_update_alert(alert_id: int, body: dict):
 def api_delete_alert(alert_id: int, user: str = Query("default")):
     delete_alert(alert_id, user)
     return {"ok": True}
+
+
+# --- AI Predictions (Feedback Learning) ---
+
+@app.get("/api/predictions")
+def api_get_predictions(stock_code: str = Query(None), user: str = Query(None),
+                        limit: int = Query(50, le=200), offset: int = Query(0)):
+    """Get AI prediction records with optional filters."""
+    from src.core.database import get_ai_predictions
+    return get_ai_predictions(stock_code=stock_code, user_id=user, limit=limit, offset=offset)
+
+
+@app.get("/api/predictions/stats")
+def api_get_prediction_stats(user: str = Query(None)):
+    """Get AI prediction accuracy statistics."""
+    from src.core.database import get_ai_prediction_stats
+    return get_ai_prediction_stats(user_id=user)
 
 
 # --- Telegram Settings ---

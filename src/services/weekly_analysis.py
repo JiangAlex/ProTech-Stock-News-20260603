@@ -121,6 +121,15 @@ def _build_weekly_prompt(stock_code: str, stock_name: str,
 
 請用繁體中文，精簡回答（300字以內）。"""
 
+    # Inject prediction history feedback if available
+    try:
+        from src.services.kline_analysis import _build_prediction_feedback
+        feedback = _build_prediction_feedback(stock_code, "shared")
+        if feedback:
+            prompt += feedback
+    except Exception:
+        pass
+
     return prompt
 
 
@@ -248,6 +257,9 @@ def run_weekly_watchlist_analysis() -> dict:
             analysis_results.append({"code": code, "name": name, "analysis": analysis})
             result["analyzed"] += 1
 
+            # Save AI prediction if ai_feedback alert is enabled
+            _try_save_weekly_prediction(code, stock["user_id"], analysis)
+
         # Rate limiting: wait between API calls
         time.sleep(2)
 
@@ -301,3 +313,42 @@ def run_weekly_watchlist_analysis() -> dict:
             result["telegram_sent"] = True
 
     return result
+
+
+def _try_save_weekly_prediction(stock_code: str, user_id: str, analysis: str):
+    """Check if ai_feedback alert is enabled for this stock, and save prediction snapshot."""
+    try:
+        from src.core.database import has_ai_feedback_alert, save_ai_prediction
+        if not has_ai_feedback_alert(stock_code, user_id):
+            return
+
+        from src.services.kline_analysis import _extract_direction, _extract_price
+
+        direction = _extract_direction(analysis)
+        target_price = _extract_price(analysis, ["目標", "壓力", "上看"])
+        stop_loss = _extract_price(analysis, ["停損", "支撐", "停利"])
+        key_reasoning = analysis[:150].replace("\n", " ")
+
+        # Get current price
+        US_INDICES = {"TWII", "DJI", "IXIC", "SOX"}
+        if stock_code in US_INDICES:
+            from src.services.us_index_service import get_us_index_kline
+            kline_data = get_us_index_kline(stock_code, 5)
+        else:
+            kline_data = get_daily_kline(stock_code, 5)
+        price = float(kline_data[-1]["close"]) if kline_data else None
+
+        save_ai_prediction(
+            stock_code=stock_code,
+            user_id=user_id,
+            prediction_date=date.today().isoformat(),
+            price_at_prediction=price,
+            direction=direction,
+            target_price=target_price,
+            stop_loss=stop_loss,
+            key_reasoning=key_reasoning,
+            source="weekly_report",
+        )
+        logger.info(f"Weekly prediction saved: {stock_code} direction={direction}")
+    except Exception as e:
+        logger.error(f"Failed to save weekly prediction for {stock_code}: {e}")

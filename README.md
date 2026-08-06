@@ -17,6 +17,7 @@
 - **個股新聞**：外連 Yahoo News 搜尋
 - **每日財經新聞**：每日 PM 5:00 自動抓取鉅亨網/Yahoo奇摩股市/CMoney 熱門即時新聞&產業分析 10 條 → Telegram 推播 + AI 盤後分析
 - **Telegram Bot**：雙向互動（查股票/自選股/掃描/持股分析/新聞），WEB 設定頁面填寫 Bot Token + Chat ID
+- **群組討論面板**：Telegram 群組訊息存檔，WEB 端即時查看討論紀錄
 
 ## 快速啟動
 
@@ -53,6 +54,69 @@ python -m src.server
 | GET | `/api/telegram/settings` | Telegram 設定 |
 | PUT | `/api/telegram/settings` | 更新 Telegram 設定 |
 | POST | `/api/telegram/test` | 測試 Telegram 發送 |
+
+## Telegram Bot 功能
+
+### 設定方式
+
+1. 在 WEB 介面「⚙ 設定」頁面填入 **Bot Token** 與 **Chat ID**
+2. 或透過環境變數設定：`TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`
+3. 使用 `POST /api/telegram/test` 驗證連線
+
+### Bot 指令
+
+| 指令 | 說明 |
+|------|------|
+| `/start` `/menu` | 顯示主選單（Persistent Keyboard） |
+| `/bind <帳號>` | 綁定 Telegram 帳號到 WEB 使用者，同步自選股/備註/警示 |
+
+### 互動功能選單
+
+| 功能 | 說明 |
+|------|------|
+| 📊 查股票 | 輸入代號 → MA 均線圖 + 加自選/AI 分析按鈕 |
+| 📋 自選股 | 分組瀏覽 → 個股操作（備註/看圖/AI 分析） |
+| 📡 掃描 | 多條件組合篩選（RSI/均線排列/站上MA/跌破MA/MA方向/MA交叉/量比/量趨勢/漲跌%/漲幅排名/產業/市場） |
+| 💼 持股分析 | AI 投資組合分析 |
+| 📰 新聞 | 新聞備註（按日期）/ 本週重點（週報） |
+| ❓ 幫助 | 使用說明 |
+
+### AI 分析功能
+
+- **個股 AI 技術分析**：查股票或自選股點選「🤖 AI 分析」，分段顯示（趨勢判斷/關鍵價位/指標解讀/型態分析/綜合判斷），支援按鈕切換段落
+- **持股分析**：一鍵執行投資組合 AI 分析
+
+### 自動排程推播
+
+| 排程 | 功能 |
+|------|------|
+| 每小時 | 抓取鉅亨網/Yahoo奇摩股市/CMoney 熱門新聞，疊加去重存入備註 |
+| 每日 17:00 | AI 盤後分析（MiniMax）：概念股/族群/類股/產業資金輪動 → Telegram 推播 |
+| 每週日 18:00 | 全自選股 AI 週度技術分析（含歷史對比）→ 彙整 Telegram 推播 |
+| 警示觸發時 | 股價/漲跌幅/MA交叉/爆量 條件達標 → Telegram 即時通知 |
+
+### 其他互動
+
+- **@Bot 提問**：AI 語意搜尋新聞/備註，自動回覆
+- **一般訊息**：自動存檔為討論紀錄
+
+### Telegram 相關 API
+
+| Method | Path | 說明 |
+|--------|------|------|
+| GET | `/api/telegram/settings` | 取得 Telegram 設定 |
+| PUT | `/api/telegram/settings` | 更新 Bot Token / Chat ID |
+| POST | `/api/telegram/test` | 發送測試訊息驗證設定 |
+
+### 環境變數
+
+| 變數 | 說明 |
+|------|------|
+| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token（也可在 WEB 設定） |
+| `TELEGRAM_CHAT_ID` | Telegram Chat/Group ID（也可在 WEB 設定） |
+| `MINIMAX_API_KEY` | MiniMax AI API Key（供盤後分析/週報使用） |
+
+---
 
 ## 資料來源
 

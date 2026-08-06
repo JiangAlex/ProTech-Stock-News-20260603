@@ -29,13 +29,20 @@ def check_alert(alert, kline_data):
     close = latest["close"]
     code = alert["stock_code"]
 
+    if not close or close <= 0:
+        return False, ""
+
     if alert_type == "price_above":
         threshold = params.get("threshold", 0)
+        if threshold <= 0:
+            return False, ""
         if close >= threshold:
             return True, f"📈 {code} 股價 {close} ≥ {threshold}"
 
     elif alert_type == "price_below":
         threshold = params.get("threshold", 0)
+        if threshold <= 0:
+            return False, ""
         if close <= threshold:
             return True, f"📉 {code} 股價 {close} ≤ {threshold}"
 
@@ -131,7 +138,7 @@ def check_realtime_alert(alert, quote):
     Returns (triggered: bool, message: str)
     """
     price = quote.get("price")
-    if price is None:
+    if price is None or price <= 0:
         return False, ""
 
     params = alert["params"] or {}
@@ -141,11 +148,15 @@ def check_realtime_alert(alert, quote):
 
     if alert_type == "price_above":
         threshold = params.get("threshold", 0)
+        if threshold <= 0:
+            return False, ""
         if price >= threshold:
             return True, f"📈 {code} 即時價 {price} ≥ {threshold}"
 
     elif alert_type == "price_below":
         threshold = params.get("threshold", 0)
+        if threshold <= 0:
+            return False, ""
         if price <= threshold:
             return True, f"📉 {code} 即時價 {price} ≤ {threshold}"
 

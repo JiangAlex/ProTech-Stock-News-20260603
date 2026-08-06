@@ -450,6 +450,40 @@ _analysis_history: dict[str, list] = {}
 MAX_ANALYSIS_HISTORY = 5
 
 
+def _build_prediction_feedback(stock_code: str, user_id: str) -> str:
+    """Build prediction history feedback section for AI prompt."""
+    try:
+        from src.core.database import get_prediction_history_for_prompt, has_ai_feedback_alert
+        if not has_ai_feedback_alert(stock_code, user_id):
+            return ""
+
+        history = get_prediction_history_for_prompt(stock_code, user_id, limit=3)
+        if not history["records"]:
+            return ""
+
+        lines = ["\n\n【歷史預測回顧】"]
+        lines.append(f"你對 {stock_code} 的 5日預測準確率：{history['accuracy_5d']}%（共 {history['total_verified']} 次驗證）\n")
+
+        for r in history["records"]:
+            date_str = str(r["prediction_date"])
+            direction_label = "偏多" if r["direction"] == "bullish" else "偏空" if r["direction"] == "bearish" else "中性"
+            price = r["price_at_prediction"]
+            price_5d = r["price_after_5d"]
+            ret = r["actual_return_5d"]
+            correct = r["is_correct_5d"]
+            mark = "✓" if correct else "✗"
+            lines.append(
+                f"- [{date_str}] 判斷「{direction_label}」，當時 {price} → 5日後 {price_5d}（{ret:+.1f}%）{mark}"
+            )
+
+        if any(not r["is_correct_5d"] for r in history["records"]):
+            lines.append("\n⚠️ 請反思上述錯誤判斷的盲點，在本次分析中避免重複相同錯誤。")
+
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 def _build_analysis_prompt(stock_code: str, stock_name: str, period: str,
                            indicators: dict, patterns: list[dict],
                            recent_kline: list[dict], user_id: str = "default") -> str:
@@ -578,6 +612,12 @@ def _build_analysis_prompt(stock_code: str, stock_name: str, period: str,
 【近10日K線】
 {kline_text}
 """
+
+    # Inject prediction history feedback if available
+    prediction_feedback = _build_prediction_feedback(stock_code, user_id)
+    if prediction_feedback:
+        prompt += prediction_feedback
+
     return prompt
 
 
@@ -705,6 +745,8 @@ def analyze_kline(stock_code: str, stock_name: str, kline_data: list[dict],
             else:
                 # Save to analysis history
                 _save_analysis_history(user_id, stock_code, analysis)
+                # Save AI prediction if ai_feedback alert is enabled for this stock
+                _try_save_prediction(stock_code, user_id, kline_data, analysis)
     except Exception as e:
         logger.error(f"AI kline analysis failed: {e}")
         analysis = f"⚠️ AI 分析失敗：{e}"
@@ -715,6 +757,74 @@ def analyze_kline(stock_code: str, stock_name: str, kline_data: list[dict],
         "analysis": analysis,
         "error": None
     }
+
+
+def _try_save_prediction(stock_code: str, user_id: str, kline_data: list, analysis: str):
+    """Check if ai_feedback alert is enabled for this stock, and save prediction snapshot."""
+    try:
+        from src.core.database import has_ai_feedback_alert, save_ai_prediction
+        if not has_ai_feedback_alert(stock_code, user_id):
+            return
+
+        # Extract direction from analysis text
+        direction = _extract_direction(analysis)
+        # Extract target_price and stop_loss if mentioned
+        target_price = _extract_price(analysis, ["目標", "壓力", "上看"])
+        stop_loss = _extract_price(analysis, ["停損", "支撐", "停利"])
+        # Key reasoning: first 100 chars of analysis
+        key_reasoning = analysis[:150].replace("\n", " ")
+        # Current price from latest kline
+        price = float(kline_data[-1]["close"]) if kline_data else None
+        # Prediction date
+        from datetime import date
+        pred_date = date.today().isoformat()
+
+        save_ai_prediction(
+            stock_code=stock_code,
+            user_id=user_id,
+            prediction_date=pred_date,
+            price_at_prediction=price,
+            direction=direction,
+            target_price=target_price,
+            stop_loss=stop_loss,
+            key_reasoning=key_reasoning,
+            source="kline_analysis",
+        )
+        logger.info(f"AI prediction saved: {stock_code} direction={direction} price={price}")
+    except Exception as e:
+        logger.error(f"Failed to save AI prediction for {stock_code}: {e}")
+
+
+def _extract_direction(analysis: str) -> str:
+    """Extract bullish/bearish/neutral direction from AI analysis text."""
+    text = analysis[:500].lower()
+    bullish_keywords = ["偏多", "看多", "多頭", "上漲", "突破", "買進", "做多", "看漲", "樂觀"]
+    bearish_keywords = ["偏空", "看空", "空頭", "下跌", "跌破", "賣出", "做空", "看跌", "悲觀"]
+
+    bull_count = sum(1 for kw in bullish_keywords if kw in text)
+    bear_count = sum(1 for kw in bearish_keywords if kw in text)
+
+    if bull_count > bear_count:
+        return "bullish"
+    elif bear_count > bull_count:
+        return "bearish"
+    return "neutral"
+
+
+def _extract_price(analysis: str, keywords: list) -> float | None:
+    """Try to extract a price number near certain keywords."""
+    import re
+    for kw in keywords:
+        idx = analysis.find(kw)
+        if idx >= 0:
+            # Look for number within 30 chars after keyword
+            segment = analysis[idx:idx+40]
+            match = re.search(r'(\d+\.?\d*)', segment)
+            if match:
+                val = float(match.group(1))
+                if 1 < val < 100000:  # reasonable stock price range
+                    return val
+    return None
 
 
 def _save_analysis_history(user_id: str, stock_code: str, analysis: str):

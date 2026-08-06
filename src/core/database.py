@@ -747,3 +747,242 @@ def get_bound_app_user(telegram_id: int) -> str:
         return row[0] if row else "default"
     finally:
         conn.close()
+
+
+# --- AI Predictions (Feedback Learning) ---
+
+def init_ai_predictions_table():
+    """Create ai_predictions table if not exists."""
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ai_predictions (
+                id SERIAL PRIMARY KEY,
+                stock_code TEXT NOT NULL,
+                user_id TEXT DEFAULT 'default',
+                prediction_date DATE NOT NULL,
+                price_at_prediction NUMERIC,
+                direction TEXT,
+                target_price NUMERIC,
+                stop_loss NUMERIC,
+                key_reasoning TEXT,
+                source TEXT,
+                price_after_5d NUMERIC,
+                price_after_20d NUMERIC,
+                actual_return_5d NUMERIC,
+                actual_return_20d NUMERIC,
+                is_correct_5d BOOLEAN,
+                is_correct_20d BOOLEAN,
+                verified_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_aipred_stock ON ai_predictions (stock_code, prediction_date DESC)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_aipred_verified ON ai_predictions (verified_at) WHERE verified_at IS NULL")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def save_ai_prediction(stock_code: str, user_id: str, prediction_date: str,
+                       price_at_prediction: float, direction: str,
+                       target_price: float = None, stop_loss: float = None,
+                       key_reasoning: str = "", source: str = "kline_analysis") -> int:
+    """Save an AI prediction snapshot. Returns the new prediction id."""
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO ai_predictions
+                (stock_code, user_id, prediction_date, price_at_prediction,
+                 direction, target_price, stop_loss, key_reasoning, source)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (stock_code, user_id, prediction_date, price_at_prediction,
+              direction, target_price, stop_loss, key_reasoning, source))
+        pred_id = cur.fetchone()[0]
+        conn.commit()
+        return pred_id
+    finally:
+        conn.close()
+
+
+def get_ai_predictions(stock_code: str = None, user_id: str = None,
+                       limit: int = 50, offset: int = 0) -> list:
+    """Get AI prediction records with optional filters."""
+    conn = _conn()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        where = []
+        params = []
+        if stock_code:
+            where.append("stock_code = %s")
+            params.append(stock_code)
+        if user_id:
+            where.append("user_id = %s")
+            params.append(user_id)
+        where_clause = "WHERE " + " AND ".join(where) if where else ""
+        cur.execute(f"""
+            SELECT * FROM ai_predictions
+            {where_clause}
+            ORDER BY prediction_date DESC, id DESC
+            LIMIT %s OFFSET %s
+        """, params + [limit, offset])
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def has_ai_feedback_alert(stock_code: str, user_id: str = None) -> bool:
+    """Check if a stock has an enabled ai_feedback alert."""
+    conn = _conn()
+    try:
+        cur = conn.cursor()
+        if user_id:
+            cur.execute(
+                "SELECT 1 FROM stock_alerts WHERE stock_code = %s AND user_id = %s AND alert_type = 'ai_feedback' AND enabled = true LIMIT 1",
+                (stock_code, user_id))
+        else:
+            cur.execute(
+                "SELECT 1 FROM stock_alerts WHERE stock_code = %s AND alert_type = 'ai_feedback' AND enabled = true LIMIT 1",
+                (stock_code,))
+        return cur.fetchone() is not None
+    finally:
+        conn.close()
+
+
+def get_ai_prediction_stats(user_id: str = None) -> dict:
+    """Get AI prediction accuracy statistics.
+
+    Returns:
+        {
+            "total": int,
+            "verified_5d": int, "correct_5d": int, "accuracy_5d": float,
+            "verified_20d": int, "correct_20d": int, "accuracy_20d": float,
+            "by_stock": [{"stock_code", "total", "correct_5d", "accuracy_5d", ...}],
+            "recent_failures": [{"stock_code", "prediction_date", "direction", "actual_return_5d"}]
+        }
+    """
+    conn = _conn()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        where = "WHERE user_id = %s" if user_id else ""
+        params = [user_id] if user_id else []
+
+        # Overall stats
+        cur.execute(f"""
+            SELECT
+                COUNT(*) as total,
+                COUNT(is_correct_5d) as verified_5d,
+                COUNT(*) FILTER (WHERE is_correct_5d = true) as correct_5d,
+                COUNT(is_correct_20d) as verified_20d,
+                COUNT(*) FILTER (WHERE is_correct_20d = true) as correct_20d
+            FROM ai_predictions {where}
+        """, params)
+        overall = dict(cur.fetchone())
+
+        verified_5d = overall["verified_5d"] or 0
+        correct_5d = overall["correct_5d"] or 0
+        verified_20d = overall["verified_20d"] or 0
+        correct_20d = overall["correct_20d"] or 0
+
+        stats = {
+            "total": overall["total"],
+            "verified_5d": verified_5d,
+            "correct_5d": correct_5d,
+            "accuracy_5d": round(correct_5d / verified_5d * 100, 1) if verified_5d > 0 else 0,
+            "verified_20d": verified_20d,
+            "correct_20d": correct_20d,
+            "accuracy_20d": round(correct_20d / verified_20d * 100, 1) if verified_20d > 0 else 0,
+        }
+
+        # Per-stock stats (top 10 by total predictions)
+        cur.execute(f"""
+            SELECT
+                stock_code,
+                COUNT(*) as total,
+                COUNT(is_correct_5d) as verified_5d,
+                COUNT(*) FILTER (WHERE is_correct_5d = true) as correct_5d,
+                COUNT(*) FILTER (WHERE is_correct_5d = false) as incorrect_5d,
+                ROUND(AVG(actual_return_5d)::numeric, 2) as avg_return_5d
+            FROM ai_predictions {where}
+            GROUP BY stock_code
+            ORDER BY COUNT(*) DESC
+            LIMIT 10
+        """, params)
+        by_stock = []
+        for r in cur.fetchall():
+            row = dict(r)
+            v = row["verified_5d"] or 0
+            c = row["correct_5d"] or 0
+            row["accuracy_5d"] = round(c / v * 100, 1) if v > 0 else 0
+            by_stock.append(row)
+        stats["by_stock"] = by_stock
+
+        # Recent failures (last 10)
+        cur.execute(f"""
+            SELECT stock_code, prediction_date, direction,
+                   price_at_prediction, price_after_5d, actual_return_5d, key_reasoning
+            FROM ai_predictions
+            {where + ' AND' if where else 'WHERE'} is_correct_5d = false
+            ORDER BY prediction_date DESC
+            LIMIT 10
+        """, params)
+        stats["recent_failures"] = [dict(r) for r in cur.fetchall()]
+
+        return stats
+    finally:
+        conn.close()
+
+
+def get_prediction_history_for_prompt(stock_code: str, user_id: str = None, limit: int = 3) -> dict:
+    """Get prediction history summary for injecting into AI prompt.
+
+    Returns:
+        {
+            "records": [{"date", "direction", "price", "price_after_5d", "return_5d", "correct_5d"}],
+            "accuracy_5d": float (percentage),
+            "total_verified": int
+        }
+    """
+    conn = _conn()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        where = "WHERE stock_code = %s"
+        params = [stock_code]
+        if user_id:
+            where += " AND user_id = %s"
+            params.append(user_id)
+
+        # Get recent verified predictions
+        cur.execute(f"""
+            SELECT prediction_date, direction, price_at_prediction,
+                   price_after_5d, actual_return_5d, is_correct_5d
+            FROM ai_predictions
+            {where} AND is_correct_5d IS NOT NULL
+            ORDER BY prediction_date DESC
+            LIMIT %s
+        """, params + [limit])
+        records = [dict(r) for r in cur.fetchall()]
+
+        # Get overall accuracy for this stock
+        cur.execute(f"""
+            SELECT COUNT(*) as total,
+                   COUNT(*) FILTER (WHERE is_correct_5d = true) as correct
+            FROM ai_predictions
+            {where} AND is_correct_5d IS NOT NULL
+        """, params)
+        row = dict(cur.fetchone())
+        total = row["total"] or 0
+        correct = row["correct"] or 0
+
+        return {
+            "records": records,
+            "accuracy_5d": round(correct / total * 100, 1) if total > 0 else 0,
+            "total_verified": total,
+        }
+    finally:
+        conn.close()
