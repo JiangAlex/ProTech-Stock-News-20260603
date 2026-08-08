@@ -660,6 +660,70 @@ def record_prediction(bar_time: str, prediction: dict):
     })
 
 
+def _push_intraday_telegram(completed_bar: dict, verification: Optional[dict],
+                            prediction: Optional[dict], next_slot: str):
+    """Push hourly TWII 60-min prediction update to Telegram.
+
+    Includes: completed bar info, verification result, and new prediction.
+    """
+    try:
+        from src.services.telegram_service import send_telegram_message
+        from src.core.database import get_alert_settings
+
+        settings = get_alert_settings("default")
+        bot_token = settings.get("telegram_bot_token", "")
+        chat_id = settings.get("telegram_chat_id", "")
+        if not bot_token or not chat_id:
+            return
+
+        bar_time = completed_bar["time"]
+        bar_close = completed_bar["close"]
+        bar_change = completed_bar["close"] - completed_bar["open"]
+        bar_change_pct = round(bar_change / completed_bar["open"] * 100, 2) if completed_bar["open"] > 0 else 0
+
+        lines = [f"🕐 <b>大盤 60 分線</b>（{bar_time} bar 收盤）"]
+        lines.append(f"加權：{bar_close:.2f}（{bar_change:+.2f}, {bar_change_pct:+.2f}%）")
+        lines.append(f"高/低：{completed_bar['high']:.2f} / {completed_bar['low']:.2f}")
+
+        # Verification of previous prediction
+        if verification:
+            prev_pred = None
+            for p in reversed(_predictions_today):
+                if p.get("is_correct") is not None:
+                    prev_pred = p
+                    break
+            if prev_pred:
+                mark = "✅" if prev_pred["is_correct"] else "❌"
+                dir_label = "偏多" if prev_pred["direction"] == "bullish" else "偏空" if prev_pred["direction"] == "bearish" else "中性"
+                actual_label = "↑漲" if prev_pred["actual_direction"] == "bullish" else "↓跌" if prev_pred["actual_direction"] == "bearish" else "→平"
+                lines.append(f"\n{mark} 上一預測：{dir_label} → 實際{actual_label}")
+
+            # Running stats
+            total = _today_stats["total"]
+            correct = _today_stats["correct"]
+            if total > 0:
+                lines.append(f"📊 今日命中：{correct}/{total}（{_today_stats['accuracy']}%）")
+
+        # New prediction
+        if prediction:
+            dir_emoji = "📈" if prediction["direction"] == "bullish" else "📉" if prediction["direction"] == "bearish" else "➖"
+            dir_label = "偏多" if prediction["direction"] == "bullish" else "偏空" if prediction["direction"] == "bearish" else "中性"
+            conf = int(prediction.get("confidence", 0.5) * 100)
+            lines.append(f"\n🔮 <b>下一時段預測（{next_slot}~）：{dir_emoji} {dir_label}</b>")
+            lines.append(f"信心度：{conf}%")
+            if prediction.get("support"):
+                lines.append(f"支撐：{prediction['support']:.0f}｜壓力：{prediction.get('resistance', 0):.0f}")
+            if prediction.get("reasoning"):
+                reason = prediction["reasoning"][:80]
+                lines.append(f"理由：{reason}")
+
+        msg = "\n".join(lines)
+        send_telegram_message(bot_token, chat_id, msg)
+        logger.info(f"TWII intraday Telegram push sent ({bar_time})")
+    except Exception as e:
+        logger.error(f"TWII intraday Telegram push failed: {e}")
+
+
 # =============================================================================
 # 6. Immediate Verification (Phase 3 — PLL Phase Detector)
 # =============================================================================
@@ -1295,7 +1359,7 @@ def on_tick(now: datetime = None):
     Handles:
     1. Fetch TWII realtime quote
     2. Update current bar
-    3. Detect bar completion → finalize → verify → predict
+    3. Detect bar completion → finalize → verify → predict → Telegram push
     """
     if now is None:
         now = datetime.now()
@@ -1318,16 +1382,20 @@ def on_tick(now: datetime = None):
         completed_bar = finalize_current_bar(now)
         if completed_bar:
             # Step 1: Verify last prediction
-            verify_last_prediction(completed_bar)
+            verification = verify_last_prediction(completed_bar)
 
             # Step 2: Save bars to file
             save_today_bars_to_file()
 
             # Step 3: Make new prediction (except after last bar)
+            prediction = None
             if slot_idx < len(BAR_SLOTS) - 1:  # Not the last slot
                 prediction = predict_next_bar()
                 if prediction:
                     record_prediction(start_time, prediction)
+
+            # Step 4: Push Telegram notification
+            _push_intraday_telegram(completed_bar, verification, prediction, start_time)
 
     # Update current bar with new tick
     update_current_bar(quote, now)
