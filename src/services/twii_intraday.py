@@ -978,7 +978,7 @@ def run_daily_integration() -> Optional[dict]:
     weekly_prediction = _extract_weekly_prediction(daily_analysis)
 
     # 7. Save prediction for 5-day verification
-    _save_daily_prediction(daily_kline, weekly_prediction)
+    _save_daily_prediction(daily_kline, weekly_prediction, daily_analysis)
 
     # 8. Determine report format (adaptive)
     should_expand = _should_expand_report()
@@ -1165,7 +1165,7 @@ def _extract_price_from_text(text: str, keywords: list) -> Optional[float]:
     return None
 
 
-def _save_daily_prediction(daily_kline: list, weekly_prediction: dict):
+def _save_daily_prediction(daily_kline: list, weekly_prediction: dict, daily_analysis: str = ""):
     """Save TWII daily prediction to ai_predictions table for 5-day verification."""
     try:
         from src.core.database import save_ai_prediction
@@ -1176,6 +1176,17 @@ def _save_daily_prediction(daily_kline: list, weekly_prediction: dict):
         current_price = daily_kline[-1]["close"]
         pred_date = date.today().isoformat()
 
+        # Build meaningful key_reasoning from AI analysis (first 300 chars)
+        intraday_acc = _today_stats.get('accuracy', 0)
+        intraday_total = _today_stats.get('total', 0)
+        reasoning_parts = []
+        if intraday_total > 0:
+            reasoning_parts.append(f"60min {_today_stats.get('correct',0)}/{intraday_total} 命中({intraday_acc}%)")
+        if daily_analysis:
+            # Take meaningful excerpt from AI analysis
+            reasoning_parts.append(daily_analysis.replace("\n", " ")[:250])
+        key_reasoning = " | ".join(reasoning_parts) if reasoning_parts else "daily integration"
+
         save_ai_prediction(
             stock_code="TWII",
             user_id="system",
@@ -1184,7 +1195,7 @@ def _save_daily_prediction(daily_kline: list, weekly_prediction: dict):
             direction=weekly_prediction.get("direction", "neutral"),
             target_price=weekly_prediction.get("resistance"),
             stop_loss=weekly_prediction.get("support"),
-            key_reasoning=f"60min accuracy={_today_stats.get('accuracy', 0)}% | daily integration",
+            key_reasoning=key_reasoning,
             source="twii_daily",
         )
         logger.info(f"TWII daily prediction saved: {weekly_prediction['direction']} at {current_price}")

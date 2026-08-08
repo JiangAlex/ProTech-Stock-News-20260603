@@ -89,6 +89,11 @@
         .pred-table{width:100%;font-size:11px;border-collapse:collapse}
         .pred-table th{color:#8b9dc3;font-weight:normal;border-bottom:1px solid #2a2d38;padding:4px 6px;text-align:left;white-space:nowrap}
         .pred-table td{padding:4px 6px;border-bottom:1px solid #1f222d;white-space:nowrap}
+        .pred-reason-modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:10000;display:none;align-items:center;justify-content:center}
+        .pred-reason-modal{background:#1a1d28;border:1px solid #3a3d48;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.8);width:520px;max-width:90vw;max-height:70vh;display:flex;flex-direction:column;overflow:hidden}
+        .pred-reason-modal-header{padding:10px 14px;background:#14161e;border-bottom:1px solid #2a2d38;display:flex;align-items:center;justify-content:space-between}
+        .pred-reason-modal-header span{font-size:12px;color:#ffb74d;font-weight:600}
+        .pred-reason-modal-body{padding:14px;overflow-y:auto;flex:1;font-size:12px;color:#e1e5ea;line-height:1.7;white-space:pre-wrap;word-break:break-word}
         .float-digest-header{padding:8px 12px;background:#14161e;border-bottom:1px solid #2a2d38;cursor:move;display:flex;align-items:center;justify-content:space-between;user-select:none}
         .float-digest-header span{font-size:12px;color:#81c784;font-weight:600}
         .float-digest-body{flex:1;display:flex;overflow:hidden}
@@ -416,6 +421,17 @@
             <span id="predSummary" style="font-size:10px;color:#8b9dc3;margin-left:auto;"></span>
         </div>
         <div id="predTableContainer"><div class="loading">載入中...</div></div>
+    </div>
+</div>
+
+<!-- Prediction Reason Modal -->
+<div class="pred-reason-modal-overlay" id="predReasonOverlay" onclick="closePredReasonModal(event)">
+    <div class="pred-reason-modal">
+        <div class="pred-reason-modal-header">
+            <span id="predReasonTitle">📝 預測理由</span>
+            <span onclick="closePredReasonModal()" style="cursor:pointer;color:#ef5350;font-size:14px;">✕</span>
+        </div>
+        <div class="pred-reason-modal-body" id="predReasonBody"></div>
     </div>
 </div>
 
@@ -2403,7 +2419,9 @@ function filterPredictionTable() {
 
     let html = `<table class="pred-table">
         <tr><th>日期</th><th>股票</th><th>來源</th><th>方向</th><th>預測價</th><th>5日後</th><th>報酬率</th><th>結果</th><th>理由</th></tr>`;
-    for (const p of records) {
+    _predFilteredRecords = records;
+    for (let ri = 0; ri < records.length; ri++) {
+        const p = records[ri];
         const dateStr = p.prediction_date ? p.prediction_date.substring(5) : '';
         const dir = p.direction === 'bullish' ? '<span style="color:#ef5350;">📈偏多</span>' :
                     p.direction === 'bearish' ? '<span style="color:#26a69a;">📉偏空</span>' : '➖中性';
@@ -2418,7 +2436,7 @@ function filterPredictionTable() {
                         p.is_correct_5d === false ? '<span style="color:#ef5350;">✗</span>' : '<span style="color:#8b9dc3;">⏳</span>';
         const reasonText = p.key_reasoning || '';
         const reasonEscaped = reasonText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-        const reason = reasonText ? `<span title="${reasonEscaped}" style="cursor:help;color:#b0bec5;">${reasonEscaped.substring(0, 20)}${reasonEscaped.length > 20 ? '...' : ''}</span>` : '—';
+        const reason = reasonText ? `<span onclick="showPredReasonModal(${ri})" style="cursor:pointer;color:#4fc3f7;text-decoration:underline;">${reasonEscaped.substring(0, 20)}${reasonEscaped.length > 20 ? '...' : ''}</span>` : '—';
         html += `<tr>
             <td>${dateStr}</td><td>${p.stock_code}</td><td style="font-size:10px;color:#8b9dc3;">${source}</td>
             <td>${dir}</td><td>${price}</td><td>${price5}</td>
@@ -2429,6 +2447,25 @@ function filterPredictionTable() {
 }
 
 let digestPanelOpen = false;
+let _predFilteredRecords = [];
+
+function showPredReasonModal(index) {
+    const p = _predFilteredRecords[index];
+    if (!p || !p.key_reasoning) return;
+    const overlay = document.getElementById('predReasonOverlay');
+    const title = document.getElementById('predReasonTitle');
+    const body = document.getElementById('predReasonBody');
+    const dateStr = p.prediction_date || '';
+    const dirLabel = p.direction === 'bullish' ? '📈偏多' : p.direction === 'bearish' ? '📉偏空' : '➖中性';
+    title.textContent = `📝 ${p.stock_code} ${dateStr} ${dirLabel}`;
+    body.textContent = p.key_reasoning;
+    overlay.style.display = 'flex';
+}
+
+function closePredReasonModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('predReasonOverlay').style.display = 'none';
+}
 let digestCache = [];
 
 function toggleDigestPanel() {
