@@ -80,6 +80,15 @@
         .float-backtest-body{flex:1;overflow-y:auto;padding:10px;font-size:11px}
         .bt-cond{display:flex;gap:4px;align-items:center;margin-bottom:4px;padding:3px;background:#0f1117;border-radius:4px}
         .float-digest{position:fixed;top:60px;left:50%;transform:translateX(-50%);width:680px;max-height:80vh;background:#1a1d28;border:1px solid #3a3d48;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.6);z-index:9999;display:none;flex-direction:column;overflow:hidden}
+        .float-predictions{position:fixed;top:60px;right:20px;width:620px;max-height:80vh;background:#1a1d28;border:1px solid #3a3d48;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.6);z-index:9999;display:none;flex-direction:column;overflow:hidden}
+        .float-predictions-header{padding:8px 12px;background:#14161e;border-bottom:1px solid #2a2d38;display:flex;align-items:center;justify-content:space-between;user-select:none}
+        .float-predictions-header span{font-size:12px;color:#ffb74d;font-weight:600}
+        .float-predictions-body{flex:1;overflow-y:auto;padding:10px 12px}
+        .pred-filters{display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+        .pred-filters select,.pred-filters input{padding:3px 6px;border-radius:4px;border:1px solid #3a3d48;background:#0f1117;color:#e1e5ea;font-size:11px}
+        .pred-table{width:100%;font-size:11px;border-collapse:collapse}
+        .pred-table th{color:#8b9dc3;font-weight:normal;border-bottom:1px solid #2a2d38;padding:4px 6px;text-align:left;white-space:nowrap}
+        .pred-table td{padding:4px 6px;border-bottom:1px solid #1f222d;white-space:nowrap}
         .float-digest-header{padding:8px 12px;background:#14161e;border-bottom:1px solid #2a2d38;cursor:move;display:flex;align-items:center;justify-content:space-between;user-select:none}
         .float-digest-header span{font-size:12px;color:#81c784;font-weight:600}
         .float-digest-body{flex:1;display:flex;overflow:hidden}
@@ -123,6 +132,7 @@
     </div>
     <button class="btn btn-s" onclick="toggleDigestPanel()" style="font-size:11px;">📰 本週重點</button>
     <button class="btn btn-s" onclick="toggleDiscussPanel()" style="font-size:11px;">💬 討論</button>
+    <button class="btn btn-s" onclick="togglePredictionPanel()" style="font-size:11px;">🎯 預測</button>
     <button class="btn btn-s" onclick="toggleSettings()">⚙ 設定</button>
 </div>
 
@@ -381,6 +391,32 @@
         </div>
     </div>
     <div class="float-discuss-body" id="discussBody"><div class="loading">載入中...</div></div>
+</div>
+
+<!-- Floating Predictions Panel -->
+<div class="float-predictions" id="floatPredictions">
+    <div class="float-predictions-header">
+        <span>🎯 AI 預測記錄</span>
+        <div style="display:flex;gap:6px;align-items:center;">
+            <button class="btn btn-s" onclick="loadPredictionRecords()" style="font-size:10px;padding:2px 6px;" title="重新載入">🔄</button>
+            <span onclick="closePredictionPanel()" style="cursor:pointer;color:#ef5350;font-size:14px;">✕</span>
+        </div>
+    </div>
+    <div class="float-predictions-body" id="predictionsBody">
+        <div class="pred-filters">
+            <select id="predFilterStock" onchange="loadPredictionRecords()">
+                <option value="">全部股票</option>
+            </select>
+            <select id="predFilterResult" onchange="filterPredictionTable()">
+                <option value="">全部結果</option>
+                <option value="correct">✓ 正確</option>
+                <option value="incorrect">✗ 錯誤</option>
+                <option value="pending">⏳ 待驗證</option>
+            </select>
+            <span id="predSummary" style="font-size:10px;color:#8b9dc3;margin-left:auto;"></span>
+        </div>
+        <div id="predTableContainer"><div class="loading">載入中...</div></div>
+    </div>
 </div>
 
 <script>
@@ -2301,6 +2337,94 @@ async function loadDiscussions() {
         document.addEventListener('mouseup', ()=>{dragging=false;});
     }
 })();
+
+// --- AI Prediction Panel ---
+let predictionPanelOpen = false;
+let _predAllRecords = [];
+
+function togglePredictionPanel() {
+    const w = document.getElementById('floatPredictions');
+    if (predictionPanelOpen) { closePredictionPanel(); return; }
+    w.style.display = 'flex';
+    predictionPanelOpen = true;
+    loadPredictionRecords();
+}
+
+function closePredictionPanel() {
+    document.getElementById('floatPredictions').style.display = 'none';
+    predictionPanelOpen = false;
+}
+
+async function loadPredictionRecords() {
+    const container = document.getElementById('predTableContainer');
+    container.innerHTML = '<div class="loading">載入中...</div>';
+    try {
+        const stockFilter = document.getElementById('predFilterStock').value;
+        let url = `/api/predictions?limit=100`;
+        if (stockFilter) url += `&stock_code=${encodeURIComponent(stockFilter)}`;
+        if (currentUser && currentUser !== 'default') url += `&user=${encodeURIComponent(currentUser)}`;
+        const data = await fetch(url).then(r => r.json());
+        _predAllRecords = data;
+
+        // Populate stock filter dropdown
+        const stockSet = new Set(data.map(p => p.stock_code));
+        const sel = document.getElementById('predFilterStock');
+        const curVal = sel.value;
+        const opts = ['<option value="">全部股票</option>'];
+        stockSet.forEach(s => opts.push(`<option value="${s}" ${s===curVal?'selected':''}>${s}</option>`));
+        if (!stockFilter) sel.innerHTML = opts.join('');
+
+        // Summary
+        const total = data.length;
+        const verified = data.filter(p => p.is_correct_5d !== null).length;
+        const correct = data.filter(p => p.is_correct_5d === true).length;
+        const acc = verified > 0 ? Math.round(correct / verified * 100) : 0;
+        document.getElementById('predSummary').innerHTML =
+            `共 <b>${total}</b> 筆 | 已驗證 <b>${verified}</b> | 勝率 <b style="color:${acc>=50?'#26a69a':'#ef5350'}">${acc}%</b>`;
+
+        filterPredictionTable();
+    } catch(e) {
+        container.innerHTML = '<div style="color:#ef5350;padding:10px;">載入失敗</div>';
+    }
+}
+
+function filterPredictionTable() {
+    const resultFilter = document.getElementById('predFilterResult').value;
+    let records = _predAllRecords;
+    if (resultFilter === 'correct') records = records.filter(p => p.is_correct_5d === true);
+    else if (resultFilter === 'incorrect') records = records.filter(p => p.is_correct_5d === false);
+    else if (resultFilter === 'pending') records = records.filter(p => p.is_correct_5d === null);
+
+    const container = document.getElementById('predTableContainer');
+    if (!records.length) {
+        container.innerHTML = '<div style="color:#6b7a8d;padding:10px;text-align:center;">無符合條件的紀錄</div>';
+        return;
+    }
+
+    let html = `<table class="pred-table">
+        <tr><th>日期</th><th>股票</th><th>來源</th><th>方向</th><th>預測價</th><th>5日後</th><th>報酬率</th><th>結果</th><th>理由</th></tr>`;
+    for (const p of records) {
+        const dateStr = p.prediction_date ? p.prediction_date.substring(5) : '';
+        const dir = p.direction === 'bullish' ? '<span style="color:#ef5350;">📈偏多</span>' :
+                    p.direction === 'bearish' ? '<span style="color:#26a69a;">📉偏空</span>' : '➖中性';
+        const source = p.source === 'twii_daily' ? '大盤日報' :
+                       p.source === 'kline_analysis' ? '個股分析' :
+                       p.source === 'weekly' ? '週報' : (p.source || '—');
+        const price = p.price_at_prediction ? Number(p.price_at_prediction).toFixed(1) : '—';
+        const price5 = p.price_after_5d ? Number(p.price_after_5d).toFixed(1) : '—';
+        const ret5 = p.actual_return_5d != null ? `${p.actual_return_5d > 0 ? '+' : ''}${Number(p.actual_return_5d).toFixed(2)}%` : '—';
+        const retColor = p.actual_return_5d > 0 ? '#ef5350' : p.actual_return_5d < 0 ? '#26a69a' : '#8b9dc3';
+        const correct = p.is_correct_5d === true ? '<span style="color:#26a69a;">✓</span>' :
+                        p.is_correct_5d === false ? '<span style="color:#ef5350;">✗</span>' : '<span style="color:#8b9dc3;">⏳</span>';
+        const reason = p.key_reasoning ? `<span title="${p.key_reasoning.replace(/"/g,'&quot;')}" style="cursor:help;color:#6b7a8d;">${p.key_reasoning.substring(0, 20)}...</span>` : '—';
+        html += `<tr>
+            <td>${dateStr}</td><td>${p.stock_code}</td><td style="font-size:10px;color:#8b9dc3;">${source}</td>
+            <td>${dir}</td><td>${price}</td><td>${price5}</td>
+            <td style="color:${retColor}">${ret5}</td><td>${correct}</td><td>${reason}</td></tr>`;
+    }
+    html += '</table>';
+    container.innerHTML = html;
+}
 
 let digestPanelOpen = false;
 let digestCache = [];

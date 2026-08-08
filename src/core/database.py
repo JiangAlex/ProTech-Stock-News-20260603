@@ -808,6 +808,21 @@ def save_ai_prediction(stock_code: str, user_id: str, prediction_date: str,
         conn.close()
 
 
+def _serialize_prediction(row: dict) -> dict:
+    """Convert Decimal/date fields to JSON-safe types."""
+    from decimal import Decimal
+    from datetime import date, datetime
+    result = {}
+    for k, v in row.items():
+        if isinstance(v, Decimal):
+            result[k] = float(v)
+        elif isinstance(v, (date, datetime)):
+            result[k] = v.isoformat()
+        else:
+            result[k] = v
+    return result
+
+
 def get_ai_predictions(stock_code: str = None, user_id: str = None,
                        limit: int = 50, offset: int = 0) -> list:
     """Get AI prediction records with optional filters."""
@@ -829,7 +844,7 @@ def get_ai_predictions(stock_code: str = None, user_id: str = None,
             ORDER BY prediction_date DESC, id DESC
             LIMIT %s OFFSET %s
         """, params + [limit, offset])
-        return [dict(r) for r in cur.fetchall()]
+        return [_serialize_prediction(dict(r)) for r in cur.fetchall()]
     finally:
         conn.close()
 
@@ -914,7 +929,7 @@ def get_ai_prediction_stats(user_id: str = None) -> dict:
         """, params)
         by_stock = []
         for r in cur.fetchall():
-            row = dict(r)
+            row = _serialize_prediction(dict(r))
             v = row["verified_5d"] or 0
             c = row["correct_5d"] or 0
             row["accuracy_5d"] = round(c / v * 100, 1) if v > 0 else 0
@@ -930,7 +945,7 @@ def get_ai_prediction_stats(user_id: str = None) -> dict:
             ORDER BY prediction_date DESC
             LIMIT 10
         """, params)
-        stats["recent_failures"] = [dict(r) for r in cur.fetchall()]
+        stats["recent_failures"] = [_serialize_prediction(dict(r)) for r in cur.fetchall()]
 
         return stats
     finally:
