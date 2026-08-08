@@ -835,7 +835,8 @@ def get_ai_predictions(stock_code: str = None, user_id: str = None,
             where.append("stock_code = %s")
             params.append(stock_code)
         if user_id:
-            where.append("user_id = %s")
+            # Include 'system' records (e.g. TWII daily) alongside user-specific records
+            where.append("(user_id = %s OR user_id = 'system')")
             params.append(user_id)
         where_clause = "WHERE " + " AND ".join(where) if where else ""
         cur.execute(f"""
@@ -883,7 +884,8 @@ def get_ai_prediction_stats(user_id: str = None) -> dict:
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        where = "WHERE user_id = %s" if user_id else ""
+        # Include 'system' records (e.g. TWII daily) alongside user-specific records
+        where = "WHERE (user_id = %s OR user_id = 'system')" if user_id else ""
         params = [user_id] if user_id else []
 
         # Overall stats

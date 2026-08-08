@@ -2409,14 +2409,16 @@ function filterPredictionTable() {
                     p.direction === 'bearish' ? '<span style="color:#26a69a;">📉偏空</span>' : '➖中性';
         const source = p.source === 'twii_daily' ? '大盤日報' :
                        p.source === 'kline_analysis' ? '個股分析' :
-                       p.source === 'weekly' ? '週報' : (p.source || '—');
+                       p.source === 'weekly_report' ? '週報' : (p.source || '—');
         const price = p.price_at_prediction ? Number(p.price_at_prediction).toFixed(1) : '—';
         const price5 = p.price_after_5d ? Number(p.price_after_5d).toFixed(1) : '—';
         const ret5 = p.actual_return_5d != null ? `${p.actual_return_5d > 0 ? '+' : ''}${Number(p.actual_return_5d).toFixed(2)}%` : '—';
         const retColor = p.actual_return_5d > 0 ? '#ef5350' : p.actual_return_5d < 0 ? '#26a69a' : '#8b9dc3';
         const correct = p.is_correct_5d === true ? '<span style="color:#26a69a;">✓</span>' :
                         p.is_correct_5d === false ? '<span style="color:#ef5350;">✗</span>' : '<span style="color:#8b9dc3;">⏳</span>';
-        const reason = p.key_reasoning ? `<span title="${p.key_reasoning.replace(/"/g,'&quot;')}" style="cursor:help;color:#6b7a8d;">${p.key_reasoning.substring(0, 20)}...</span>` : '—';
+        const reasonText = p.key_reasoning || '';
+        const reasonEscaped = reasonText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        const reason = reasonText ? `<span title="${reasonEscaped}" style="cursor:help;color:#b0bec5;">${reasonEscaped.substring(0, 20)}${reasonEscaped.length > 20 ? '...' : ''}</span>` : '—';
         html += `<tr>
             <td>${dateStr}</td><td>${p.stock_code}</td><td style="font-size:10px;color:#8b9dc3;">${source}</td>
             <td>${dir}</td><td>${price}</td><td>${price5}</td>
