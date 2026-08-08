@@ -75,6 +75,7 @@ async def lifespan(app: FastAPI):
     init_ai_predictions_table()
     background_tasks.append(asyncio.create_task(_daily_prediction_verify_job()))
     background_tasks.append(asyncio.create_task(_weekly_prediction_review_job()))
+    background_tasks.append(asyncio.create_task(_daily_ai_feedback_job()))
     # TWII Intraday 60-min AI Feedback Learning
     background_tasks.append(asyncio.create_task(_twii_intraday_job()))
     # Telegram Bot polling
@@ -236,6 +237,89 @@ async def _weekly_prediction_review_job():
                 _logger.info("Weekly prediction review: no data to report")
         except Exception as e:
             _logger.error(f"Weekly prediction review job error: {e}")
+
+
+async def _daily_ai_feedback_job():
+    """每日 17:10 自動對所有啟用回饋學習的個股執行 AI 分析，產生預測記錄。"""
+    import asyncio
+    from datetime import datetime, timedelta
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+
+    while True:
+        now = datetime.now()
+        # Next 17:10 (after TWII daily at 17:00/17:05)
+        target = now.replace(hour=17, minute=10, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+        wait_seconds = (target - now).total_seconds()
+        _logger.info(f"Daily AI feedback: next run at {target} (wait {wait_seconds:.0f}s)")
+        await asyncio.sleep(wait_seconds)
+
+        # Skip weekends (Sat=5, Sun=6)
+        if datetime.now().weekday() >= 5:
+            _logger.info("Daily AI feedback: skipping weekend")
+            continue
+
+        try:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            from src.core.pg_client import DB_CONFIG, get_daily_kline, get_all_stocks
+            from src.services.kline_analysis import analyze_kline
+
+            # Get all stocks with ai_feedback alert enabled
+            conn = psycopg2.connect(**DB_CONFIG)
+            try:
+                cur = conn.cursor(cursor_factory=RealDictCursor)
+                cur.execute("""
+                    SELECT DISTINCT stock_code, user_id
+                    FROM stock_alerts
+                    WHERE alert_type = 'ai_feedback' AND enabled = true
+                      AND stock_code NOT IN ('TWII', 'DJI', 'IXIC', 'SOX')
+                """)
+                feedback_stocks = [dict(r) for r in cur.fetchall()]
+            finally:
+                conn.close()
+
+            if not feedback_stocks:
+                _logger.info("Daily AI feedback: no stocks with ai_feedback enabled")
+                continue
+
+            _logger.info(f"Daily AI feedback: analyzing {len(feedback_stocks)} stocks")
+
+            # Get stock name mapping
+            all_stocks = get_all_stocks()
+            stock_names = {s["code"]: s["name"] for s in all_stocks}
+
+            analyzed = 0
+            for item in feedback_stocks:
+                code = item["stock_code"]
+                user_id = item["user_id"]
+                name = stock_names.get(code, code)
+
+                try:
+                    kline = get_daily_kline(code, days=120)
+                    if not kline:
+                        _logger.warning(f"Daily AI feedback: no kline for {code}")
+                        continue
+
+                    # Run AI analysis (this will auto-save prediction via _try_save_prediction)
+                    result = analyze_kline(code, name, kline, period="daily", user_id=user_id)
+                    if result and result.get("analysis") and not result.get("error"):
+                        analyzed += 1
+                        _logger.info(f"  ✓ {code} analyzed")
+                    else:
+                        _logger.warning(f"  ✗ {code} analysis failed: {result.get('error', 'no result')}")
+
+                    # Rate limiting
+                    await asyncio.sleep(3)
+                except Exception as e:
+                    _logger.error(f"  ✗ {code} error: {e}")
+                    await asyncio.sleep(2)
+
+            _logger.info(f"Daily AI feedback done: {analyzed}/{len(feedback_stocks)} analyzed")
+        except Exception as e:
+            _logger.error(f"Daily AI feedback job error: {e}")
 
 
 async def _twii_intraday_job():
