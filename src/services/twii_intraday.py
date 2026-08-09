@@ -1367,22 +1367,26 @@ def on_tick(now: datetime = None):
     # Fetch realtime quote
     quote = fetch_twii_realtime()
     if not quote:
+        logger.debug(f"on_tick: fetch_twii_realtime returned None at {now.strftime('%H:%M:%S')}")
         return
 
     # Determine current slot
     slot = get_current_bar_slot(now)
     if slot is None:
+        logger.debug(f"on_tick: outside market hours at {now.strftime('%H:%M:%S')}")
         return
 
     slot_idx, start_time, end_time = slot
 
     # Check if previous bar just completed (first tick of new slot)
     if _current_bar and _current_bar.get("time_slot") != start_time:
+        logger.info(f"on_tick: bar slot changed {_current_bar.get('time_slot')} → {start_time}, finalizing...")
         # Previous bar ended — finalize it
         completed_bar = finalize_current_bar(now)
         if completed_bar:
             # Step 1: Verify last prediction
             verification = verify_last_prediction(completed_bar)
+            logger.info(f"on_tick: verification={'correct' if verification and verification.get('is_correct') else 'incorrect' if verification else 'none'}")
 
             # Step 2: Save bars to file
             save_today_bars_to_file()
@@ -1390,12 +1394,20 @@ def on_tick(now: datetime = None):
             # Step 3: Make new prediction (except after last bar)
             prediction = None
             if slot_idx < len(BAR_SLOTS) - 1:  # Not the last slot
+                logger.info(f"on_tick: calling predict_next_bar (recent_bars={len(get_recent_bars(5))})")
                 prediction = predict_next_bar()
                 if prediction:
                     record_prediction(start_time, prediction)
+                    logger.info(f"on_tick: prediction recorded: {prediction['direction']} conf={prediction.get('confidence')}")
+                else:
+                    logger.warning("on_tick: predict_next_bar returned None — no prediction made")
+            else:
+                logger.info(f"on_tick: last bar slot, skipping prediction")
 
             # Step 4: Push Telegram notification
             _push_intraday_telegram(completed_bar, verification, prediction, start_time)
+        else:
+            logger.warning("on_tick: finalize_current_bar returned None")
 
     # Update current bar with new tick
     update_current_bar(quote, now)
