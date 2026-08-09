@@ -1427,6 +1427,31 @@ def api_get_prediction_stats(user: str = Query(None)):
     return get_ai_prediction_stats(user_id=user)
 
 
+@app.get("/api/twii-intraday/status")
+def api_twii_intraday_status():
+    """Diagnostic: TWII intraday 60-min system status."""
+    from src.services.twii_intraday import (
+        _current_bar, _today_bars, _predictions_today, _today_stats,
+        get_recent_bars, _load_kline_history, _load_prediction_history,
+    )
+    import os
+    history = _load_kline_history()
+    pred_history = _load_prediction_history()
+    recent_bars = get_recent_bars(days=5)
+    return {
+        "minimax_api_key_set": bool(os.getenv("MINIMAX_API_KEY", "")),
+        "current_bar": _current_bar,
+        "today_bars_count": len(_today_bars),
+        "today_bars": _today_bars[-3:] if _today_bars else [],
+        "predictions_today": _predictions_today,
+        "today_stats": _today_stats,
+        "kline_history_dates": sorted(history.keys()),
+        "kline_history_total_bars": sum(len(v) for v in history.values()),
+        "recent_bars_count": len(recent_bars),
+        "prediction_history_dates": sorted(pred_history.keys()) if pred_history else [],
+    }
+
+
 # --- Telegram Settings ---
 
 @app.get("/api/telegram/settings")
