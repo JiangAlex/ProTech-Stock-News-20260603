@@ -2461,11 +2461,18 @@ function filterPredictionTable() {
 let digestPanelOpen = false;
 let _predFilteredRecords = [];
 
-function showPredReasonModal(index) {
+async function showPredReasonModal(index) {
     const p = _predFilteredRecords[index];
     if (!p || !p.key_reasoning) return;
     const dateStr = p.prediction_date || '';
     const dirLabel = p.direction === 'bullish' ? '📈偏多' : p.direction === 'bearish' ? '📉偏空' : '➖中性';
+
+    // Load stock K-line chart first if not already loaded
+    if (currentCode !== p.stock_code) {
+        await loadStock(p.stock_code);
+    } else if (document.getElementById('stockPanel').style.display === 'none') {
+        await loadStock(p.stock_code);
+    }
 
     // Use the same aiAnalysisPanel area (below K-line chart)
     const panel = document.getElementById('aiAnalysisPanel');
