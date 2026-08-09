@@ -789,10 +789,23 @@ def save_ai_prediction(stock_code: str, user_id: str, prediction_date: str,
                        price_at_prediction: float, direction: str,
                        target_price: float = None, stop_loss: float = None,
                        key_reasoning: str = "", source: str = "kline_analysis") -> int:
-    """Save an AI prediction snapshot. Returns the new prediction id."""
+    """Save an AI prediction snapshot. Returns the new prediction id.
+
+    Deduplication: skip insert if same stock_code + prediction_date + source exists.
+    """
     conn = _conn()
     try:
         cur = conn.cursor()
+        # Check for duplicate: same stock_code + prediction_date + source
+        cur.execute("""
+            SELECT id FROM ai_predictions
+            WHERE stock_code = %s AND prediction_date = %s AND source = %s
+            LIMIT 1
+        """, (stock_code, prediction_date, source))
+        existing = cur.fetchone()
+        if existing:
+            return existing[0]
+
         cur.execute("""
             INSERT INTO ai_predictions
                 (stock_code, user_id, prediction_date, price_at_prediction,
