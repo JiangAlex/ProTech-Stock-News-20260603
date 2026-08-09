@@ -1595,6 +1595,7 @@ async function runAiAnalysis(){
     titleEl.textContent='🤖 AI 技術分析';
     titleEl.style.color='#4fc3f7';
     panel.style.display='block';
+    panel.style.borderColor='#4fc3f7';
     content.innerHTML='<div style="color:#4fc3f7;">🤖 AI 分析中（約 10-30 秒）...</div>';
     const btn=document.getElementById('btnAiAnalysis');
     btn.disabled=true;btn.style.opacity='0.5';
@@ -2463,14 +2464,21 @@ let _predFilteredRecords = [];
 function showPredReasonModal(index) {
     const p = _predFilteredRecords[index];
     if (!p || !p.key_reasoning) return;
-    const overlay = document.getElementById('predReasonOverlay');
-    const title = document.getElementById('predReasonTitle');
-    const body = document.getElementById('predReasonBody');
     const dateStr = p.prediction_date || '';
     const dirLabel = p.direction === 'bullish' ? '📈偏多' : p.direction === 'bearish' ? '📉偏空' : '➖中性';
-    title.textContent = `📝 ${p.stock_code} ${dateStr} ${dirLabel}`;
-    body.innerHTML = renderMarkdown(p.key_reasoning);
-    overlay.style.display = 'flex';
+
+    // Use the same aiAnalysisPanel area (below K-line chart)
+    const panel = document.getElementById('aiAnalysisPanel');
+    const content = document.getElementById('aiAnalysisContent');
+    const titleEl = panel.querySelector('span');
+    titleEl.textContent = `📝 ${p.stock_code} ${dateStr} ${dirLabel} — 預測理由`;
+    titleEl.style.color = '#ffb74d';
+    panel.style.display = 'block';
+    panel.style.borderColor = '#ffb74d';
+    content.innerHTML = renderMarkdown(p.key_reasoning);
+
+    // Scroll into view
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function renderMarkdown(text) {
