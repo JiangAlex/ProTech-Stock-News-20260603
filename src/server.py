@@ -1452,6 +1452,29 @@ def api_twii_intraday_status():
     }
 
 
+@app.post("/api/twii-intraday/test-predict")
+def api_twii_test_predict():
+    """Diagnostic: manually trigger predict_next_bar and return result or error."""
+    import traceback
+    from src.services.twii_intraday import predict_next_bar, get_recent_bars, _compute_60min_indicators
+    try:
+        bars = get_recent_bars(days=5)
+        if len(bars) < 5:
+            return {"error": f"Insufficient bars: {len(bars)}", "bars_count": len(bars)}
+
+        indicators = _compute_60min_indicators(bars)
+        if "error" in indicators:
+            return {"error": f"Indicator error: {indicators['error']}", "bars_count": len(bars)}
+
+        result = predict_next_bar()
+        if result:
+            return {"success": True, "prediction": result}
+        else:
+            return {"success": False, "error": "predict_next_bar returned None", "bars_count": len(bars), "indicators_keys": list(indicators.keys())}
+    except Exception as e:
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
+
+
 # --- Telegram Settings ---
 
 @app.get("/api/telegram/settings")
