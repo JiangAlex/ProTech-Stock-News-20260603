@@ -566,7 +566,7 @@ def predict_next_bar() -> Optional[dict]:
             {"role": "system", "content": "你是台股大盤 60 分線短線分析專家，只輸出 JSON 格式。"},
             {"role": "user", "content": prompt},
         ],
-        "max_tokens": 600,
+        "max_tokens": 2000,
         "temperature": 0.2,
     }).encode()
 
