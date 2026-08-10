@@ -1456,7 +1456,12 @@ def api_twii_intraday_status():
 def api_twii_test_predict():
     """Diagnostic: manually trigger predict_next_bar and return result or error."""
     import traceback
-    from src.services.twii_intraday import predict_next_bar, get_recent_bars, _compute_60min_indicators
+    import urllib.request
+    import os
+    from src.services.twii_intraday import (
+        predict_next_bar, get_recent_bars, _compute_60min_indicators,
+        _build_prediction_prompt, _build_pll_feedback, MINIMAX_API_URL,
+    )
     try:
         bars = get_recent_bars(days=5)
         if len(bars) < 5:
@@ -1466,11 +1471,43 @@ def api_twii_test_predict():
         if "error" in indicators:
             return {"error": f"Indicator error: {indicators['error']}", "bars_count": len(bars)}
 
-        result = predict_next_bar()
-        if result:
-            return {"success": True, "prediction": result}
-        else:
-            return {"success": False, "error": "predict_next_bar returned None", "bars_count": len(bars), "indicators_keys": list(indicators.keys())}
+        # Test MiniMax API directly
+        api_key = os.getenv("MINIMAX_API_KEY", "")
+        if not api_key:
+            return {"error": "MINIMAX_API_KEY not set"}
+
+        feedback = _build_pll_feedback()
+        prompt = _build_prediction_prompt(bars, indicators, feedback)
+
+        import json as _json
+        data = _json.dumps({
+            "model": "MiniMax-M2.7",
+            "messages": [
+                {"role": "system", "content": "你是台股大盤 60 分線短線分析專家，只輸出 JSON 格式。"},
+                {"role": "user", "content": prompt},
+            ],
+            "max_tokens": 600,
+            "temperature": 0.2,
+        }).encode()
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            req = urllib.request.Request(MINIMAX_API_URL, data=data, method="POST", headers=headers)
+            with urllib.request.urlopen(req, timeout=30) as r:
+                raw = r.read().decode()
+                return {"success": True, "api_response_preview": raw[:500], "bars_count": len(bars)}
+        except urllib.error.HTTPError as he:
+            error_body = he.read().decode() if he.fp else ""
+            return {"error": f"MiniMax HTTP {he.code}", "detail": error_body[:500]}
+        except urllib.error.URLError as ue:
+            return {"error": f"MiniMax URLError: {ue.reason}"}
+        except Exception as api_e:
+            return {"error": f"MiniMax call failed: {str(api_e)}"}
+
     except Exception as e:
         return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
