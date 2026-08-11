@@ -771,8 +771,8 @@ def _try_save_prediction(stock_code: str, user_id: str, kline_data: list, analys
         # Extract target_price and stop_loss if mentioned
         target_price = _extract_price(analysis, ["目標", "壓力", "上看"])
         stop_loss = _extract_price(analysis, ["停損", "支撐", "停利"])
-        # Key reasoning: first 100 chars of analysis
-        key_reasoning = analysis[:300]
+        # Store full analysis as key_reasoning
+        key_reasoning = analysis
         # Current price from latest kline
         price = float(kline_data[-1]["close"]) if kline_data else None
         # Prediction date

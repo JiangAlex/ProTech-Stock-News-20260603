@@ -327,7 +327,7 @@ def _try_save_weekly_prediction(stock_code: str, user_id: str, analysis: str):
         direction = _extract_direction(analysis)
         target_price = _extract_price(analysis, ["目標", "壓力", "上看"])
         stop_loss = _extract_price(analysis, ["停損", "支撐", "停利"])
-        key_reasoning = analysis[:300]
+        key_reasoning = analysis
 
         # Get current price
         US_INDICES = {"TWII", "DJI", "IXIC", "SOX"}

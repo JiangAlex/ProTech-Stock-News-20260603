@@ -1247,8 +1247,8 @@ def _save_daily_prediction(daily_kline: list, weekly_prediction: dict, daily_ana
         if intraday_total > 0:
             reasoning_parts.append(f"60min {_today_stats.get('correct',0)}/{intraday_total} 命中({intraday_acc}%)")
         if daily_analysis:
-            # Take meaningful excerpt from AI analysis
-            reasoning_parts.append(daily_analysis[:250])
+            # Store full AI analysis text
+            reasoning_parts.append(daily_analysis)
         key_reasoning = " | ".join(reasoning_parts) if reasoning_parts else "daily integration"
 
         save_ai_prediction(
