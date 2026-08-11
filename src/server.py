@@ -344,6 +344,103 @@ async def _twii_intraday_job():
 
     last_market_close_date = None
     last_integration_date = None
+    last_opening_report_date = None
+
+    def _get_telegram_config():
+        """Get bot token and chat id."""
+        try:
+            settings = get_alert_settings("default")
+            return settings.get("telegram_bot_token", ""), settings.get("telegram_chat_id", "")
+        except Exception:
+            import os
+            return os.getenv("TELEGRAM_BOT_TOKEN", ""), os.getenv("TELEGRAM_CHAT_ID", "")
+
+    def _send_opening_report():
+        """Send 09:00 opening report to Telegram."""
+        from src.services.twii_intraday import get_recent_bars, _load_prediction_history
+        bot_token, chat_id = _get_telegram_config()
+        if not bot_token or not chat_id:
+            return
+
+        bars = get_recent_bars(days=3)
+        if not bars:
+            return
+
+        last_bar = bars[-1]
+        last_close = last_bar["close"]
+
+        # Yesterday's stats from prediction history
+        pred_history = _load_prediction_history()
+        yesterday_dates = sorted(pred_history.keys(), reverse=True)
+        yesterday_stats = ""
+        if yesterday_dates:
+            yd = pred_history[yesterday_dates[0]]
+            yesterday_stats = f"\n📊 昨日 AI 命中：{yd.get('correct', 0)}/{yd.get('total', 0)}（{yd.get('accuracy', 0)}%）"
+
+        # Recent trend (last 5 bars)
+        recent_bars = bars[-5:] if len(bars) >= 5 else bars
+        trend_up = sum(1 for b in recent_bars if b["close"] >= b["open"])
+        trend_down = len(recent_bars) - trend_up
+
+        lines = [
+            f"🔔 <b>開盤報告</b>（{datetime.now().strftime('%m/%d %H:%M')}）",
+            f"",
+            f"📍 昨收：{last_close:.2f}",
+            f"📈 近期趨勢：{trend_up}漲/{trend_down}跌（近{len(recent_bars)}根60分線）",
+        ]
+        if yesterday_stats:
+            lines.append(yesterday_stats)
+        lines.append(f"\n⏰ 盤中 AI 預測將於 10:00 首次推播")
+
+        msg = "\n".join(lines)
+        send_telegram_message(bot_token, chat_id, msg)
+        _logger.info("TWII opening report sent to Telegram")
+
+    def _send_closing_report():
+        """Send 13:30 closing summary report to Telegram."""
+        from src.services.twii_intraday import (
+            _today_bars, _today_stats, _predictions_today, generate_intraday_summary,
+        )
+        bot_token, chat_id = _get_telegram_config()
+        if not bot_token or not chat_id:
+            return
+
+        if not _today_bars:
+            return
+
+        day_open = _today_bars[0]["open"]
+        day_high = max(b["high"] for b in _today_bars)
+        day_low = min(b["low"] for b in _today_bars)
+        day_close = _today_bars[-1]["close"]
+        day_change = day_close - day_open
+        day_change_pct = round(day_change / day_open * 100, 2) if day_open > 0 else 0
+        amplitude = round((day_high - day_low) / day_open * 100, 2) if day_open > 0 else 0
+
+        total = _today_stats["total"]
+        correct = _today_stats["correct"]
+        accuracy = _today_stats["accuracy"]
+
+        lines = [
+            f"🔔 <b>收盤簡報</b>（{datetime.now().strftime('%m/%d')} 13:30）",
+            f"",
+            f"📍 加權指數：{day_close:.2f}（{day_change:+.2f}, {day_change_pct:+.2f}%）",
+            f"📊 高/低：{day_high:.2f} / {day_low:.2f}（振幅 {amplitude}%）",
+        ]
+
+        if total > 0:
+            lines.append(f"\n🤖 <b>AI 盤中預測命中：{correct}/{total}（{accuracy}%）</b>")
+            for p in _predictions_today:
+                if p.get("is_correct") is not None:
+                    mark = "✅" if p["is_correct"] else "❌"
+                    dir_label = "偏多" if p["direction"] == "bullish" else "偏空" if p["direction"] == "bearish" else "中性"
+                    actual_label = "↑漲" if p.get("actual_direction") == "bullish" else "↓跌" if p.get("actual_direction") == "bearish" else "→平"
+                    lines.append(f"  {p['bar_time']}: {dir_label} → {actual_label} {mark}")
+
+        lines.append(f"\n⏰ 17:05 將推送完整 AI 盤後分析")
+
+        msg = "\n".join(lines)
+        send_telegram_message(bot_token, chat_id, msg)
+        _logger.info("TWII closing report sent to Telegram")
 
     while True:
         now = datetime.now()
@@ -369,6 +466,14 @@ async def _twii_intraday_job():
             continue
 
         elif now <= market_close:
+            # Send opening report once at market open
+            if last_opening_report_date != today_str:
+                try:
+                    _send_opening_report()
+                    last_opening_report_date = today_str
+                except Exception as e:
+                    _logger.error(f"TWII opening report error: {e}")
+
             # Market hours: tick every 60 seconds
             try:
                 on_tick(now)
@@ -380,6 +485,7 @@ async def _twii_intraday_job():
             # Market just closed: run close handler once
             try:
                 on_market_close(now)
+                _send_closing_report()
                 last_market_close_date = today_str
                 _logger.info("TWII market close handler completed")
             except Exception as e:
