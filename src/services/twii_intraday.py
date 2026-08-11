@@ -714,8 +714,7 @@ def _push_intraday_telegram(completed_bar: dict, verification: Optional[dict],
             if prediction.get("support"):
                 lines.append(f"支撐：{prediction['support']:.0f}｜壓力：{prediction.get('resistance', 0):.0f}")
             if prediction.get("reasoning"):
-                reason = prediction["reasoning"][:80]
-                lines.append(f"理由：{reason}")
+                lines.append(f"理由：{prediction['reasoning']}")
 
         msg = "\n".join(lines)
         send_telegram_message(bot_token, chat_id, msg)
