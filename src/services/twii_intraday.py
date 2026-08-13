@@ -528,7 +528,7 @@ def _build_prediction_prompt(bars: list[dict], indicators: dict, feedback: str =
     "resistance": 數字（下一根壓力位）,
     "ma35_analysis": "MA35 與現價關係的簡短描述（20字內）",
     "ma200_analysis": "MA200 與現價關係的簡短描述（20字內）",
-    "reasoning": "支撐壓力判斷理由（50字內）"
+    "reasoning": "支撐壓力判斷理由，包含均線位置、量能、K線型態等綜合分析（150字內）"
 }}
 
 # 技術指標
