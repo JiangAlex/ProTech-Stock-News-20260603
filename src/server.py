@@ -428,13 +428,11 @@ async def _twii_intraday_job():
         ]
 
         if total > 0:
-            lines.append(f"\n🤖 <b>AI 盤中預測命中：{correct}/{total}（{accuracy}%）</b>")
+            lines.append(f"\n🤖 <b>AI 支撐壓力命中：{correct}/{total}（{accuracy}%）</b>")
             for p in _predictions_today:
-                if p.get("is_correct") is not None:
-                    mark = "✅" if p["is_correct"] else "❌"
-                    dir_label = "偏多" if p["direction"] == "bullish" else "偏空" if p["direction"] == "bearish" else "中性"
-                    actual_label = "↑漲" if p.get("actual_direction") == "bullish" else "↓跌" if p.get("actual_direction") == "bearish" else "→平"
-                    lines.append(f"  {p['bar_time']}: {dir_label} → {actual_label} {mark}")
+                if p.get("is_within_range") is not None:
+                    mark = "✅" if p["is_within_range"] else "❌"
+                    lines.append(f"  {p['bar_time']}: S={p.get('support', 0):.0f} R={p.get('resistance', 0):.0f} → {p.get('actual_close', 0):.2f} {mark}")
 
         lines.append(f"\n⏰ 17:05 將推送完整 AI 盤後分析")
 

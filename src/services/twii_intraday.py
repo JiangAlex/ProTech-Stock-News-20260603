@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data")
 KLINE_FILE = os.path.join(DATA_DIR, "twii_60min_kline.json")
 PREDICTION_FILE = os.path.join(DATA_DIR, "twii_prediction_history.json")
-KLINE_RETAIN_DAYS = 10
+KLINE_RETAIN_DAYS = 60  # Need 200+ bars for MA200 (5 bars/day * 60 days = 300 bars)
 PREDICTION_RETAIN_DAYS = 30
 
 MIS_API_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
@@ -331,12 +331,12 @@ def get_recent_bars(days: int = 5) -> list[dict]:
 # 4. Yahoo Finance — Historical 60-min K-line Initialization
 # =============================================================================
 
-def init_history_from_yahoo(range_str: str = "5d") -> int:
+def init_history_from_yahoo(range_str: str = "60d") -> int:
     """Fetch historical 60-min TWII kline from Yahoo Finance.
 
     Used on startup if local JSON file has insufficient data.
     Args:
-        range_str: "5d" or "7d"
+        range_str: "5d", "7d", "60d" etc. (Yahoo allows up to 60d for 60min interval)
     Returns: number of bars stored
     """
     url = f"{YAHOO_CHART_URL}?interval=60m&range={range_str}"
@@ -453,6 +453,8 @@ def _compute_60min_indicators(bars: list[dict]) -> dict:
     ma5 = ma(closes, 5)
     ma10 = ma(closes, 10)
     ma20 = ma(closes, 20)
+    ma35 = ma(closes, 35)
+    ma200 = ma(closes, 200)
 
     # Current price vs MAs
     current = closes[-1]
@@ -471,6 +473,10 @@ def _compute_60min_indicators(bars: list[dict]) -> dict:
     up_count = sum(1 for i in range(1, len(recent_5)) if recent_5[i] > recent_5[i-1])
     down_count = len(recent_5) - 1 - up_count
 
+    # MA35/MA200 position analysis
+    ma35_dist = round((current - ma35) / current * 100, 2) if ma35 else None
+    ma200_dist = round((current - ma200) / current * 100, 2) if ma200 else None
+
     return {
         "current": current,
         "prev_close": prev,
@@ -479,6 +485,10 @@ def _compute_60min_indicators(bars: list[dict]) -> dict:
         "ma5": ma5,
         "ma10": ma10,
         "ma20": ma20,
+        "ma35": ma35,
+        "ma200": ma200,
+        "ma35_dist": ma35_dist,
+        "ma200_dist": ma200_dist,
         "vol_ratio": vol_ratio,
         "recent_up": up_count,
         "recent_down": down_count,
@@ -487,7 +497,7 @@ def _compute_60min_indicators(bars: list[dict]) -> dict:
 
 
 def _build_prediction_prompt(bars: list[dict], indicators: dict, feedback: str = "") -> str:
-    """Build AI prompt for predicting next 60-min bar direction."""
+    """Build AI prompt for analyzing next 60-min bar support/resistance levels."""
 
     # Format recent bars (last 20 or all)
     display_bars = bars[-20:]
@@ -497,24 +507,33 @@ def _build_prediction_prompt(bars: list[dict], indicators: dict, feedback: str =
         for b in display_bars
     ])
 
+    # MA35/MA200 info
+    ma_extra = ""
+    if indicators.get('ma35'):
+        ma_extra += f"\n- MA35: {indicators['ma35']}（距離現價 {indicators['ma35_dist']:+.2f}%）"
+    if indicators.get('ma200'):
+        ma_extra += f"\n- MA200: {indicators['ma200']}（距離現價 {indicators['ma200_dist']:+.2f}%）"
+
     prompt = f"""# 角色
-你是一位專精台股大盤的短線技術分析師，擅長判斷 60 分鐘 K 線走勢。
+你是一位專精台股大盤的短線技術分析師，擅長分析 60 分鐘 K 線的支撐與壓力。
 
 # 任務
-根據以下台灣加權指數（TWII）60 分鐘 K 線資料與技術指標，預測下一根 60 分 K 線的方向與關鍵價位。
+根據以下台灣加權指數（TWII）60 分鐘 K 線資料與技術指標，分析下一根 60 分 K 線的關鍵支撐位與壓力位，並結合 MA35/MA200 判斷目前多空格局。
+
+注意：不要預測方向，只需分析支撐、壓力與均線相對位置。
 
 # 輸出格式（嚴格 JSON，不要加任何其他文字）
 {{
-    "direction": "bullish" 或 "bearish" 或 "neutral",
-    "confidence": 0.0~1.0,
     "support": 數字（下一根支撐位）,
     "resistance": 數字（下一根壓力位）,
-    "reasoning": "簡短理由（50字內）"
+    "ma35_analysis": "MA35 與現價關係的簡短描述（20字內）",
+    "ma200_analysis": "MA200 與現價關係的簡短描述（20字內）",
+    "reasoning": "支撐壓力判斷理由（50字內）"
 }}
 
 # 技術指標
 - 最新收盤：{indicators['current']:.2f}（較前根 {indicators['change']:+.2f}, {indicators['change_pct']:+.2f}%）
-- MA5: {indicators['ma5']}  MA10: {indicators['ma10']}  MA20: {indicators['ma20']}
+- MA5: {indicators['ma5']}  MA10: {indicators['ma10']}  MA20: {indicators['ma20']}{ma_extra}
 - 量比（vs 5根均量）: {indicators['vol_ratio']}
 - 近5根趨勢：{indicators['recent_up']} 漲 / {indicators['recent_down']} 跌
 
@@ -533,7 +552,7 @@ def predict_next_bar() -> Optional[dict]:
     """Run AI prediction for the next 60-min bar.
 
     Returns:
-        {"direction": str, "confidence": float, "support": float, "resistance": float, "reasoning": str}
+        {"support": float, "resistance": float, "ma35_analysis": str, "ma200_analysis": str, "reasoning": str}
         or None on failure.
     """
     api_key = os.getenv("MINIMAX_API_KEY", "")
@@ -541,8 +560,8 @@ def predict_next_bar() -> Optional[dict]:
         logger.warning("MINIMAX_API_KEY not set, skipping TWII prediction")
         return None
 
-    # Get recent bars (history + today)
-    all_bars = get_recent_bars(days=5)
+    # Get recent bars (history + today) — need 200+ bars for MA200 (5 bars/day * 45 days)
+    all_bars = get_recent_bars(days=45)
     if len(all_bars) < 5:
         logger.warning(f"Insufficient bars for prediction ({len(all_bars)}), need at least 5")
         return None
@@ -582,7 +601,7 @@ def predict_next_bar() -> Optional[dict]:
             raw_content = result["choices"][0]["message"]["content"].strip()
 
             # Try to extract JSON from full response first (including think blocks)
-            json_match = re.search(r'\{[^{}]*"direction"[^{}]*\}', raw_content, re.DOTALL)
+            json_match = re.search(r'\{[^{}]*"support"[^{}]*\}', raw_content, re.DOTALL)
             if not json_match:
                 # Fallback: try after removing think blocks and markdown code fences
                 content = re.sub(r'<think>.*?</think>', '', raw_content, flags=re.DOTALL).strip()
@@ -592,24 +611,24 @@ def predict_next_bar() -> Optional[dict]:
 
             if not json_match:
                 logger.warning(f"TWII prediction: no JSON in response (len={len(raw_content)})")
-                # Fallback: parse direction from think block text
-                return _parse_direction_from_text(raw_content)
+                return _parse_support_resistance_from_text(raw_content)
 
             prediction = json.loads(json_match.group())
 
-            # Validate required fields
-            if "direction" not in prediction:
-                return _parse_direction_from_text(raw_content)
+            # Validate required fields (support/resistance are the core outputs now)
+            if "support" not in prediction and "resistance" not in prediction:
+                return _parse_support_resistance_from_text(raw_content)
 
-            prediction.setdefault("confidence", 0.5)
             prediction.setdefault("support", 0)
             prediction.setdefault("resistance", 0)
+            prediction.setdefault("ma35_analysis", "")
+            prediction.setdefault("ma200_analysis", "")
             prediction.setdefault("reasoning", "")
 
             logger.info(
-                f"TWII prediction: {prediction['direction']} "
-                f"conf={prediction['confidence']:.1f} "
-                f"S={prediction['support']} R={prediction['resistance']}"
+                f"TWII prediction: "
+                f"S={prediction['support']} R={prediction['resistance']} "
+                f"MA35={prediction['ma35_analysis']} MA200={prediction['ma200_analysis']}"
             )
             return prediction
 
@@ -618,29 +637,20 @@ def predict_next_bar() -> Optional[dict]:
         return None
 
 
-def _parse_direction_from_text(text: str) -> Optional[dict]:
-    """Fallback: extract prediction from AI's think-block text when JSON output fails."""
-    bullish_kw = ["偏多", "看多", "多頭", "看漲", "上攻", "反彈"]
-    bearish_kw = ["偏空", "看空", "空頭", "看跌", "下跌", "回落"]
-
-    bull = sum(1 for kw in bullish_kw if kw in text)
-    bear = sum(1 for kw in bearish_kw if kw in text)
-
-    if bull == 0 and bear == 0:
-        return None
-
-    direction = "bullish" if bull > bear else "bearish" if bear > bull else "neutral"
-
-    # Try to extract support/resistance
+def _parse_support_resistance_from_text(text: str) -> Optional[dict]:
+    """Fallback: extract support/resistance from AI's text when JSON output fails."""
     support = _extract_price_from_text(text, ["支撐", "下檔", "低點"])
     resistance = _extract_price_from_text(text, ["壓力", "上檔", "高點"])
 
+    if not support and not resistance:
+        return None
+
     return {
-        "direction": direction,
-        "confidence": 0.4,  # Lower confidence for text-parsed result
         "support": support or 0,
         "resistance": resistance or 0,
-        "reasoning": f"(text-parsed) bull={bull} bear={bear}",
+        "ma35_analysis": "",
+        "ma200_analysis": "",
+        "reasoning": "(text-parsed)",
     }
 
 
@@ -649,14 +659,13 @@ def record_prediction(bar_time: str, prediction: dict):
     _predictions_today.append({
         "bar_time": bar_time,
         "predicted_at": datetime.now().strftime("%H:%M"),
-        "direction": prediction["direction"],
-        "confidence": prediction.get("confidence", 0.5),
         "support": prediction.get("support", 0),
         "resistance": prediction.get("resistance", 0),
+        "ma35_analysis": prediction.get("ma35_analysis", ""),
+        "ma200_analysis": prediction.get("ma200_analysis", ""),
         "reasoning": prediction.get("reasoning", ""),
-        "actual_direction": None,
         "actual_close": None,
-        "is_correct": None,
+        "is_within_range": None,
     })
 
 
@@ -689,30 +698,28 @@ def _push_intraday_telegram(completed_bar: dict, verification: Optional[dict],
         if verification:
             prev_pred = None
             for p in reversed(_predictions_today):
-                if p.get("is_correct") is not None:
+                if p.get("is_within_range") is not None:
                     prev_pred = p
                     break
             if prev_pred:
-                mark = "✅" if prev_pred["is_correct"] else "❌"
-                dir_label = "偏多" if prev_pred["direction"] == "bullish" else "偏空" if prev_pred["direction"] == "bearish" else "中性"
-                actual_label = "↑漲" if prev_pred["actual_direction"] == "bullish" else "↓跌" if prev_pred["actual_direction"] == "bearish" else "→平"
-                lines.append(f"\n{mark} 上一預測：{dir_label} → 實際{actual_label}")
+                mark = "✅" if prev_pred["is_within_range"] else "❌"
+                lines.append(f"\n{mark} 上一分析：S={prev_pred['support']:.0f} R={prev_pred['resistance']:.0f} → 實際{prev_pred['actual_close']:.2f}")
 
             # Running stats
             total = _today_stats["total"]
             correct = _today_stats["correct"]
             if total > 0:
-                lines.append(f"📊 今日命中：{correct}/{total}（{_today_stats['accuracy']}%）")
+                lines.append(f"📊 今日命中（落在S~R範圍）：{correct}/{total}（{_today_stats['accuracy']}%）")
 
-        # New prediction
+        # New prediction (support/resistance analysis)
         if prediction:
-            dir_emoji = "📈" if prediction["direction"] == "bullish" else "📉" if prediction["direction"] == "bearish" else "➖"
-            dir_label = "偏多" if prediction["direction"] == "bullish" else "偏空" if prediction["direction"] == "bearish" else "中性"
-            conf = int(prediction.get("confidence", 0.5) * 100)
-            lines.append(f"\n🔮 <b>下一時段預測（{next_slot}~）：{dir_emoji} {dir_label}</b>")
-            lines.append(f"信心度：{conf}%")
+            lines.append(f"\n🔮 <b>下一時段分析（{next_slot}~）</b>")
             if prediction.get("support"):
                 lines.append(f"支撐：{prediction['support']:.0f}｜壓力：{prediction.get('resistance', 0):.0f}")
+            if prediction.get("ma35_analysis"):
+                lines.append(f"MA35：{prediction['ma35_analysis']}")
+            if prediction.get("ma200_analysis"):
+                lines.append(f"MA200：{prediction['ma200_analysis']}")
             if prediction.get("reasoning"):
                 lines.append(f"理由：{prediction['reasoning']}")
 
@@ -730,6 +737,8 @@ def _push_intraday_telegram(completed_bar: dict, verification: Optional[dict],
 def verify_last_prediction(completed_bar: dict) -> Optional[dict]:
     """Verify the last prediction against the just-completed bar.
 
+    Checks if actual close is within support~resistance range.
+
     Args:
         completed_bar: The bar that just closed {time, open, high, low, close, volume}
 
@@ -744,52 +753,34 @@ def verify_last_prediction(completed_bar: dict) -> Optional[dict]:
     # Find the last unverified prediction
     last_pred = None
     for p in reversed(_predictions_today):
-        if p["is_correct"] is None:
+        if p["is_within_range"] is None:
             last_pred = p
             break
 
     if last_pred is None:
         return None
 
-    # Determine actual direction
-    prev_bar_close = None
-    if len(_today_bars) >= 2:
-        prev_bar_close = _today_bars[-2]["close"]
-    elif len(_today_bars) == 1:
-        # First bar of the day — compare with yesterday's last close
-        history = _load_kline_history()
-        yesterday_dates = sorted([d for d in history.keys() if d < date.today().isoformat()], reverse=True)
-        if yesterday_dates:
-            yesterday_bars = history[yesterday_dates[0]]
-            if yesterday_bars:
-                prev_bar_close = yesterday_bars[-1]["close"]
+    actual_close = completed_bar["close"]
+    support = last_pred.get("support", 0)
+    resistance = last_pred.get("resistance", 0)
 
-    if prev_bar_close is None:
-        return None
-
-    actual_change = completed_bar["close"] - prev_bar_close
-    if actual_change > 0:
-        actual_direction = "bullish"
-    elif actual_change < 0:
-        actual_direction = "bearish"
+    # Check if actual close is within support~resistance range
+    if support > 0 and resistance > 0:
+        is_within = support <= actual_close <= resistance
+    elif support > 0:
+        is_within = actual_close >= support
+    elif resistance > 0:
+        is_within = actual_close <= resistance
     else:
-        actual_direction = "neutral"
-
-    # Check correctness
-    predicted = last_pred["direction"]
-    if predicted == "neutral":
-        is_correct = abs(actual_change / prev_bar_close * 100) < 0.1
-    else:
-        is_correct = (predicted == actual_direction)
+        is_within = False
 
     # Update prediction record
-    last_pred["actual_direction"] = actual_direction
-    last_pred["actual_close"] = completed_bar["close"]
-    last_pred["is_correct"] = is_correct
+    last_pred["actual_close"] = actual_close
+    last_pred["is_within_range"] = is_within
 
     # Update today's stats
     _today_stats["total"] += 1
-    if is_correct:
+    if is_within:
         _today_stats["correct"] += 1
         _today_stats["consecutive_failures"] = 0
     else:
@@ -800,19 +791,19 @@ def verify_last_prediction(completed_bar: dict) -> Optional[dict]:
         _today_stats["correct"] / _today_stats["total"] * 100, 1
     ) if _today_stats["total"] > 0 else 0
 
-    mark = "✓" if is_correct else "✗"
+    mark = "✓" if is_within else "✗"
     logger.info(
-        f"TWII verify: {last_pred['bar_time']} pred={predicted} actual={actual_direction} "
-        f"{mark} ({prev_bar_close:.2f}→{completed_bar['close']:.2f})"
+        f"TWII verify: {last_pred['bar_time']} "
+        f"S={support:.0f} R={resistance:.0f} actual={actual_close:.2f} "
+        f"{mark} ({'in range' if is_within else 'out of range'})"
     )
 
     return {
         "bar_time": last_pred["bar_time"],
-        "predicted": predicted,
-        "actual": actual_direction,
-        "is_correct": is_correct,
-        "prev_close": prev_bar_close,
-        "actual_close": completed_bar["close"],
+        "support": support,
+        "resistance": resistance,
+        "actual_close": actual_close,
+        "is_within_range": is_within,
     }
 
 
@@ -831,12 +822,12 @@ def save_today_prediction_stats():
         "details": [
             {
                 "bar_time": p["bar_time"],
-                "direction": p["direction"],
-                "actual": p.get("actual_direction"),
-                "correct": p.get("is_correct"),
-                "confidence": p.get("confidence"),
+                "support": p.get("support"),
+                "resistance": p.get("resistance"),
+                "actual_close": p.get("actual_close"),
+                "is_within_range": p.get("is_within_range"),
             }
-            for p in _predictions_today if p.get("is_correct") is not None
+            for p in _predictions_today if p.get("is_within_range") is not None
         ],
     }
     _save_prediction_history(history)
@@ -853,7 +844,7 @@ def save_today_prediction_stats():
 def _build_pll_feedback() -> str:
     """Build PLL feedback string for AI prompt injection.
 
-    Analyzes recent prediction history to identify systematic biases.
+    Analyzes recent prediction history to identify support/resistance accuracy.
     """
     history = _load_prediction_history()
     if not history:
@@ -866,54 +857,36 @@ def _build_pll_feedback() -> str:
 
     total_all = 0
     correct_all = 0
-    bullish_errors = 0
-    bearish_errors = 0
-    total_predictions = 0
+    range_too_wide = 0
+    range_too_narrow = 0
 
     for d in sorted_dates:
         day_data = history[d]
         total_all += day_data.get("total", 0)
         correct_all += day_data.get("correct", 0)
         for detail in day_data.get("details", []):
-            total_predictions += 1
-            if not detail.get("correct"):
-                if detail.get("direction") == "bullish":
-                    bullish_errors += 1
-                elif detail.get("direction") == "bearish":
-                    bearish_errors += 1
+            if not detail.get("is_within_range") and detail.get("support") and detail.get("resistance"):
+                actual = detail.get("actual_close", 0)
+                if actual < detail["support"]:
+                    range_too_narrow += 1  # Support was too high
+                elif actual > detail["resistance"]:
+                    range_too_narrow += 1  # Resistance was too low
 
     if total_all == 0:
         return ""
 
     accuracy = round(correct_all / total_all * 100, 1)
     lines = ["\n【PLL 回饋修正】"]
-    lines.append(f"近 {len(sorted_dates)} 天 60 分線準確率：{accuracy}%（{correct_all}/{total_all}）")
+    lines.append(f"近 {len(sorted_dates)} 天支撐壓力命中率：{accuracy}%（{correct_all}/{total_all}）")
 
-    # Bias detection
-    total_errors = bullish_errors + bearish_errors
-    if total_errors >= 3:
-        if bullish_errors > bearish_errors * 1.5:
-            lines.append(f"⚠️ 系統性偏差：過度看多（偏多錯誤 {bullish_errors} 次 vs 偏空錯誤 {bearish_errors} 次）")
-            lines.append("修正建議：遇量縮或 MA 糾結時應偏中性，勿輕易看多")
-        elif bearish_errors > bullish_errors * 1.5:
-            lines.append(f"⚠️ 系統性偏差：過度看空（偏空錯誤 {bearish_errors} 次 vs 偏多錯誤 {bullish_errors} 次）")
-            lines.append("修正建議：反彈訊號明確時勿過度悲觀")
+    # Range accuracy feedback
+    total_errors = total_all - correct_all
+    if total_errors >= 3 and range_too_narrow >= 2:
+        lines.append("⚠️ 支撐壓力範圍偏窄，實際收盤常超出範圍。建議適當擴大支撐壓力區間。")
 
     # Consecutive failure warning
     if _today_stats.get("consecutive_failures", 0) >= 2:
-        lines.append(f"⚠️ 當日已連續失敗 {_today_stats['consecutive_failures']} 次，請格外謹慎判斷")
-
-    # Last day's result for immediate reflection
-    if sorted_dates:
-        last_day = history[sorted_dates[0]]
-        last_details = last_day.get("details", [])
-        last_failures = [d for d in last_details if not d.get("correct")]
-        if last_failures:
-            last_fail = last_failures[-1]
-            lines.append(
-                f"上次失敗：預測「{last_fail['direction']}」→ 實際「{last_fail.get('actual', '?')}」"
-                f"，請避免在相似情境下重複此錯誤"
-            )
+        lines.append(f"⚠️ 當日已連續失敗 {_today_stats['consecutive_failures']} 次，請重新評估支撐壓力區間")
 
     return "\n".join(lines) if len(lines) > 1 else ""
 
@@ -948,16 +921,15 @@ def generate_intraday_summary() -> str:
     lines.append(f"日內高低：{day_high:.2f} / {day_low:.2f}（振幅 {round((day_high-day_low)/day_open*100, 2)}%）")
 
     if total > 0:
-        lines.append(f"AI 預測命中：{correct}/{total}（{accuracy}%）")
+        lines.append(f"AI 支撐壓力命中：{correct}/{total}（{accuracy}%）")
 
         # Detail each prediction
         for p in _predictions_today:
-            if p.get("is_correct") is not None:
-                mark = "✓" if p["is_correct"] else "✗"
+            if p.get("is_within_range") is not None:
+                mark = "✓" if p["is_within_range"] else "✗"
                 lines.append(
-                    f"  {p['bar_time']}: 預測{'↑' if p['direction']=='bullish' else '↓' if p['direction']=='bearish' else '→'} "
-                    f"實際{'↑' if p.get('actual_direction')=='bullish' else '↓' if p.get('actual_direction')=='bearish' else '→'} "
-                    f"{mark}"
+                    f"  {p['bar_time']}: S={p.get('support', 0):.0f} R={p.get('resistance', 0):.0f} "
+                    f"實際={p.get('actual_close', 0):.2f} {mark}"
                 )
 
     return "\n".join(lines)
@@ -1397,7 +1369,7 @@ def on_tick(now: datetime = None):
                 prediction = predict_next_bar()
                 if prediction:
                     record_prediction(start_time, prediction)
-                    logger.info(f"on_tick: prediction recorded: {prediction['direction']} conf={prediction.get('confidence')}")
+                    logger.info(f"on_tick: prediction recorded: S={prediction.get('support')} R={prediction.get('resistance')}")
                 else:
                     logger.warning("on_tick: predict_next_bar returned None — no prediction made")
             else:
