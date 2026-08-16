@@ -3,6 +3,7 @@
 import os
 import json
 import urllib.request
+from src.services.http_retry import retry_urlopen
 import logging
 
 logger = logging.getLogger(__name__)
@@ -71,19 +72,18 @@ def expand_keywords(query: str) -> list[str]:
 
     try:
         req = urllib.request.Request(MINIMAX_API_URL, data=data, method="POST", headers=headers)
-        with urllib.request.urlopen(req, timeout=30) as r:
-            result = json.loads(r.read())
-            content = result["choices"][0]["message"]["content"].strip()
-            # Remove <think>...</think> blocks if present
-            import re
-            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
-            # Parse comma-separated keywords
-            keywords = [k.strip() for k in content.replace("、", ",").replace("，", ",").split(",") if k.strip()]
-            # Always include original query
-            if query not in keywords:
-                keywords.insert(0, query)
-            logger.info(f"Expanded '{query}' -> {keywords}")
-            return keywords
+        result = json.loads(retry_urlopen(req, timeout=30, max_retries=2))
+        content = result["choices"][0]["message"]["content"].strip()
+        # Remove <think>...</think> blocks if present
+        import re
+        content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+        # Parse comma-separated keywords
+        keywords = [k.strip() for k in content.replace("、", ",").replace("，", ",").split(",") if k.strip()]
+        # Always include original query
+        if query not in keywords:
+            keywords.insert(0, query)
+        logger.info(f"Expanded '{query}' -> {keywords}")
+        return keywords
     except Exception as e:
         logger.error(f"Keyword expansion failed: {e}")
         return [query]
@@ -262,17 +262,16 @@ def ask_news(query: str, user_id: str = "default") -> dict:
 
     try:
         req = urllib.request.Request(MINIMAX_API_URL, data=data, method="POST", headers=headers)
-        with urllib.request.urlopen(req, timeout=60) as r:
-            result = json.loads(r.read())
-            content = result["choices"][0]["message"]["content"].strip()
-            # Remove <think>...</think> blocks
-            import re as re2
-            answer = re2.sub(r'<think>.*?</think>', '', content, flags=re2.DOTALL).strip()
-            if not answer:
-                answer = "⚠️ AI 回應為空，請重試。"
-            else:
-                # Save to conversation history
-                _save_history(user_id, query, answer)
+        result = json.loads(retry_urlopen(req, timeout=60, max_retries=2))
+        content = result["choices"][0]["message"]["content"].strip()
+        # Remove <think>...</think> blocks
+        import re as re2
+        answer = re2.sub(r'<think>.*?</think>', '', content, flags=re2.DOTALL).strip()
+        if not answer:
+            answer = "⚠️ AI 回應為空，請重試。"
+        else:
+            # Save to conversation history
+            _save_history(user_id, query, answer)
     except Exception as e:
         logger.error(f"AI QA failed: {e}")
         answer = f"⚠️ AI 回答失敗：{e}"

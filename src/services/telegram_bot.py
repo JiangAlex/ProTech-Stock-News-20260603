@@ -1631,6 +1631,12 @@ async def run_polling(executor=None):
     loop = asyncio.get_event_loop()
     _stop = threading.Event()
 
+    # Exponential backoff state
+    _backoff_delay = 5.0  # initial delay on error
+    _BACKOFF_MAX = 120.0  # cap at 2 minutes
+    _BACKOFF_FACTOR = 2.0
+    _consecutive_errors = 0
+
     def _fetch_updates(url: str):
         """Blocking HTTP call — executed in thread executor.
         Uses short socket timeout and checks stop event to allow fast exit.
@@ -1657,8 +1663,13 @@ async def run_polling(executor=None):
 
             if not data.get("ok"):
                 logger.error(f"getUpdates error: {data}")
-                await asyncio.sleep(5)
+                _consecutive_errors += 1
+                delay = min(_backoff_delay * (_BACKOFF_FACTOR ** (_consecutive_errors - 1)), _BACKOFF_MAX)
+                await asyncio.sleep(delay)
                 continue
+
+            # Success — reset backoff
+            _consecutive_errors = 0
 
             for update in data.get("result", []):
                 offset = update["update_id"] + 1
@@ -1675,5 +1686,7 @@ async def run_polling(executor=None):
         except Exception as e:
             if _stop.is_set():
                 break
-            logger.error(f"Polling error: {e}")
-            await asyncio.sleep(5)
+            _consecutive_errors += 1
+            delay = min(_backoff_delay * (_BACKOFF_FACTOR ** (_consecutive_errors - 1)), _BACKOFF_MAX)
+            logger.error(f"Polling error: {e} (retry in {delay:.0f}s, attempt #{_consecutive_errors})")
+            await asyncio.sleep(delay)

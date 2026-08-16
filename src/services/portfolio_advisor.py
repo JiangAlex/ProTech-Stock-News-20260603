@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import urllib.request
+from src.services.http_retry import retry_urlopen
 from datetime import date
 
 import psycopg2
@@ -339,16 +340,15 @@ def analyze_portfolio(user_id: str = "default") -> dict:
 
     try:
         req = urllib.request.Request(MINIMAX_API_URL, data=data, method="POST", headers=headers)
-        with urllib.request.urlopen(req, timeout=90) as r:
-            result = json.loads(r.read())
-            content = result["choices"][0]["message"]["content"].strip()
-            # Remove <think>...</think> blocks
-            analysis = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
-            if not analysis:
-                analysis = "⚠️ AI 回應為空，請重試。"
-            else:
-                # Save to history
-                _save_portfolio_history(user_id, analysis)
+        result = json.loads(retry_urlopen(req, timeout=90, max_retries=2))
+        content = result["choices"][0]["message"]["content"].strip()
+        # Remove <think>...</think> blocks
+        analysis = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+        if not analysis:
+            analysis = "⚠️ AI 回應為空，請重試。"
+        else:
+            # Save to history
+            _save_portfolio_history(user_id, analysis)
     except Exception as e:
         logger.error(f"Portfolio AI analysis failed: {e}")
         analysis = f"⚠️ AI 持股分析失敗：{e}"

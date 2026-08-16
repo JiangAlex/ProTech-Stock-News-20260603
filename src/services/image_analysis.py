@@ -6,6 +6,7 @@ import logging
 import mimetypes
 import os
 import urllib.request
+from src.services.http_retry import retry_urlopen
 
 logger = logging.getLogger(__name__)
 
@@ -97,15 +98,14 @@ def analyze_image_ai(image_data: bytes, filename: str = "") -> str | None:
 
     try:
         req = urllib.request.Request(MINIMAX_API_URL, data=payload, method="POST", headers=headers)
-        with urllib.request.urlopen(req, timeout=30) as r:
-            result = json.loads(r.read())
-            content = result["choices"][0]["message"]["content"].strip()
-            # Remove <think>...</think> blocks if present
-            import re
-            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
-            if content:
-                return content[:500]
-            return None
+        result = json.loads(retry_urlopen(req, timeout=30, max_retries=2))
+        content = result["choices"][0]["message"]["content"].strip()
+        # Remove <think>...</think> blocks if present
+        import re
+        content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+        if content:
+            return content[:500]
+        return None
     except Exception as e:
         logger.error(f"AI image analysis failed: {e}")
         return None

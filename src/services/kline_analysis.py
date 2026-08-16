@@ -9,6 +9,7 @@ Provides:
 import os
 import json
 import urllib.request
+from src.services.http_retry import retry_urlopen
 import logging
 from typing import Optional
 
@@ -734,19 +735,18 @@ def analyze_kline(stock_code: str, stock_name: str, kline_data: list[dict],
 
     try:
         req = urllib.request.Request(MINIMAX_API_URL, data=data, method="POST", headers=headers)
-        with urllib.request.urlopen(req, timeout=60) as r:
-            result = json.loads(r.read())
-            content = result["choices"][0]["message"]["content"].strip()
-            # Remove <think>...</think> blocks
-            import re
-            analysis = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
-            if not analysis:
-                analysis = "⚠️ AI 回應為空，請重試。"
-            else:
-                # Save to analysis history
-                _save_analysis_history(user_id, stock_code, analysis)
-                # Save AI prediction if ai_feedback alert is enabled for this stock
-                _try_save_prediction(stock_code, user_id, kline_data, analysis)
+        result = json.loads(retry_urlopen(req, timeout=60, max_retries=2))
+        content = result["choices"][0]["message"]["content"].strip()
+        # Remove <think>...</think> blocks
+        import re
+        analysis = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+        if not analysis:
+            analysis = "⚠️ AI 回應為空，請重試。"
+        else:
+            # Save to analysis history
+            _save_analysis_history(user_id, stock_code, analysis)
+            # Save AI prediction if ai_feedback alert is enabled for this stock
+            _try_save_prediction(stock_code, user_id, kline_data, analysis)
     except Exception as e:
         logger.error(f"AI kline analysis failed: {e}")
         analysis = f"⚠️ AI 分析失敗：{e}"

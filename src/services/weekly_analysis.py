@@ -13,6 +13,7 @@ import os
 import re
 import time
 import urllib.request
+from src.services.http_retry import retry_urlopen
 from datetime import date
 
 import psycopg2
@@ -182,11 +183,10 @@ def analyze_single_stock(stock_code: str, stock_name: str) -> str | None:
 
     try:
         req = urllib.request.Request(MINIMAX_API_URL, data=data, method="POST", headers=headers)
-        with urllib.request.urlopen(req, timeout=60) as r:
-            result = json.loads(r.read())
-            content = result["choices"][0]["message"]["content"].strip()
-            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
-            return content if content else None
+        result = json.loads(retry_urlopen(req, timeout=60, max_retries=2))
+        content = result["choices"][0]["message"]["content"].strip()
+        content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+        return content if content else None
     except Exception as e:
         logger.error(f"[{stock_code}] AI analysis failed: {e}")
         return None

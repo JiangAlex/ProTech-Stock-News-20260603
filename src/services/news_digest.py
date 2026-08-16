@@ -4,6 +4,7 @@ import os
 import json
 import re
 import urllib.request
+from src.services.http_retry import retry_urlopen
 import logging
 from datetime import date, timedelta
 
@@ -117,11 +118,10 @@ def generate_weekly_digest(target_date: date = None) -> dict | None:
 
     try:
         req = urllib.request.Request(MINIMAX_API_URL, data=data, method="POST", headers=headers)
-        with urllib.request.urlopen(req, timeout=60) as r:
-            result = json.loads(r.read())
-            content = result["choices"][0]["message"]["content"].strip()
-            # Remove <think>...</think> blocks if present
-            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+        result = json.loads(retry_urlopen(req, timeout=60, max_retries=2))
+        content = result["choices"][0]["message"]["content"].strip()
+        # Remove <think>...</think> blocks if present
+        content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
 
         if not content:
             logger.error("MiniMax returned empty content for weekly digest")

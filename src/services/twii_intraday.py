@@ -20,6 +20,7 @@ import logging
 import os
 import re
 import urllib.request
+from src.services.http_retry import retry_urlopen
 from datetime import datetime, date, timedelta
 from typing import Optional
 
@@ -596,41 +597,40 @@ def predict_next_bar() -> Optional[dict]:
 
     try:
         req = urllib.request.Request(MINIMAX_API_URL, data=data, method="POST", headers=headers)
-        with urllib.request.urlopen(req, timeout=30) as r:
-            result = json.loads(r.read())
-            raw_content = result["choices"][0]["message"]["content"].strip()
+        result = json.loads(retry_urlopen(req, timeout=30, max_retries=2))
+        raw_content = result["choices"][0]["message"]["content"].strip()
 
-            # Try to extract JSON from full response first (including think blocks)
-            json_match = re.search(r'\{[^{}]*"support"[^{}]*\}', raw_content, re.DOTALL)
-            if not json_match:
-                # Fallback: try after removing think blocks and markdown code fences
-                content = re.sub(r'<think>.*?</think>', '', raw_content, flags=re.DOTALL).strip()
-                content = re.sub(r'```json\s*', '', content)
-                content = re.sub(r'```\s*', '', content)
-                json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        # Try to extract JSON from full response first (including think blocks)
+        json_match = re.search(r'\{[^{}]*"support"[^{}]*\}', raw_content, re.DOTALL)
+        if not json_match:
+            # Fallback: try after removing think blocks and markdown code fences
+            content = re.sub(r'<think>.*?</think>', '', raw_content, flags=re.DOTALL).strip()
+            content = re.sub(r'```json\s*', '', content)
+            content = re.sub(r'```\s*', '', content)
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
 
-            if not json_match:
-                logger.warning(f"TWII prediction: no JSON in response (len={len(raw_content)})")
-                return _parse_support_resistance_from_text(raw_content)
+        if not json_match:
+            logger.warning(f"TWII prediction: no JSON in response (len={len(raw_content)})")
+            return _parse_support_resistance_from_text(raw_content)
 
-            prediction = json.loads(json_match.group())
+        prediction = json.loads(json_match.group())
 
-            # Validate required fields (support/resistance are the core outputs now)
-            if "support" not in prediction and "resistance" not in prediction:
-                return _parse_support_resistance_from_text(raw_content)
+        # Validate required fields (support/resistance are the core outputs now)
+        if "support" not in prediction and "resistance" not in prediction:
+            return _parse_support_resistance_from_text(raw_content)
 
-            prediction.setdefault("support", 0)
-            prediction.setdefault("resistance", 0)
-            prediction.setdefault("ma35_analysis", "")
-            prediction.setdefault("ma200_analysis", "")
-            prediction.setdefault("reasoning", "")
+        prediction.setdefault("support", 0)
+        prediction.setdefault("resistance", 0)
+        prediction.setdefault("ma35_analysis", "")
+        prediction.setdefault("ma200_analysis", "")
+        prediction.setdefault("reasoning", "")
 
-            logger.info(
-                f"TWII prediction: "
-                f"S={prediction['support']} R={prediction['resistance']} "
-                f"MA35={prediction['ma35_analysis']} MA200={prediction['ma200_analysis']}"
-            )
-            return prediction
+        logger.info(
+            f"TWII prediction: "
+            f"S={prediction['support']} R={prediction['resistance']} "
+            f"MA35={prediction['ma35_analysis']} MA200={prediction['ma200_analysis']}"
+        )
+        return prediction
 
     except Exception as e:
         logger.error(f"TWII AI prediction failed: {e}")
@@ -998,10 +998,9 @@ def run_daily_integration() -> Optional[dict]:
     daily_analysis = ""
     try:
         req = urllib.request.Request(MINIMAX_API_URL, data=data, method="POST", headers=headers)
-        with urllib.request.urlopen(req, timeout=60) as r:
-            result = json.loads(r.read())
-            content = result["choices"][0]["message"]["content"].strip()
-            daily_analysis = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+        result = json.loads(retry_urlopen(req, timeout=60, max_retries=2))
+        content = result["choices"][0]["message"]["content"].strip()
+        daily_analysis = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
     except Exception as e:
         logger.error(f"TWII daily integration AI failed: {e}")
         return None
