@@ -48,6 +48,9 @@ BAR_SLOTS = [
     ("13:00", "13:30"),
 ]
 
+# --- Persistence path ---
+_STATS_FILE = os.path.join(DATA_DIR, "today_stats.json")
+
 # --- In-memory state ---
 _current_bar: dict = {}       # Current bar being assembled {open, high, low, close, volume_start, volume}
 _today_bars: list = []        # Completed bars for today
@@ -60,10 +63,50 @@ _today_stats: dict = {        # Today's prediction accuracy stats
     "consecutive_failures": 0,
 }
 
+# --- Helpers (defined before use) ---
 
 def _ensure_data_dir():
     """Create data directory if not exists."""
     os.makedirs(DATA_DIR, exist_ok=True)
+
+
+# Try to restore persisted stats on module load
+_ensure_data_dir()
+try:
+    load_today_stats()
+except Exception:
+    pass  # graceful fallback if file missing or corrupt
+
+
+def save_today_stats():
+    """Persist _today_stats to JSON file (includes date key)."""
+    try:
+        payload = dict(_today_stats, date=date.today().isoformat())
+        with open(_STATS_FILE, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+    except Exception as e:
+        logger.warning(f"Failed to save today_stats: {e}")
+
+
+def load_today_stats():
+    """Load _today_stats from JSON file; reset if not today."""
+    if not os.path.exists(_STATS_FILE):
+        return
+    try:
+        with open(_STATS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        today = date.today().isoformat()
+        if data.get("date") == today:
+            _today_stats.update(data)
+            logger.info(f"Restored today_stats from file: {data}")
+        else:
+            logger.info(f"Stats file is from a different date ({data.get('date')}), resetting.")
+            _today_stats.update({
+                "total": 0, "correct": 0, "incorrect": 0,
+                "accuracy": 0.0, "consecutive_failures": 0,
+            })
+    except Exception as e:
+        logger.warning(f"Failed to load today_stats: {e}")
 
 
 # =============================================================================
@@ -420,11 +463,16 @@ def init_history_from_yahoo(range_str: str = "60d") -> int:
 
 
 def ensure_history_available():
-    """Check if we have enough history; if not, fetch from Yahoo Finance."""
+    """Check if we have enough history for MA200; if not, fetch from Yahoo Finance.
+
+    MA200 needs 200 bars = ~40 trading days. We check total bars to be safe.
+    """
     history = _load_kline_history()
-    if len(history) < 3:
-        logger.info("Insufficient 60min history, fetching from Yahoo Finance...")
-        init_history_from_yahoo("5d")
+    total_bars = sum(len(bars) for bars in history.values())
+    # Need at least 200 bars for MA200; 3 days is far from enough (3*5=15 bars)
+    if total_bars < 200:
+        logger.info(f"Insufficient 60min history ({total_bars} bars), fetching 60d from Yahoo Finance...")
+        init_history_from_yahoo("60d")
 
 
 # =============================================================================
@@ -790,6 +838,8 @@ def verify_last_prediction(completed_bar: dict) -> Optional[dict]:
     _today_stats["accuracy"] = round(
         _today_stats["correct"] / _today_stats["total"] * 100, 1
     ) if _today_stats["total"] > 0 else 0
+
+    save_today_stats()  # persist after every update
 
     mark = "✓" if is_within else "✗"
     logger.info(
