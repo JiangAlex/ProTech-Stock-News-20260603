@@ -10,7 +10,7 @@ from src.services.http_retry import retry_urlopen
 
 logger = logging.getLogger(__name__)
 
-MINIMAX_API_URL = "https://api.minimax.io/v1/chat/completions"
+MINIMAX_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # Prompt for news image analysis — concise version
 _ANALYSIS_PROMPT = """\
@@ -30,7 +30,7 @@ def analyze_image_ai(image_data: bytes, filename: str = "") -> str | None:
     Use MiniMax M3 vision model to analyze a news image.
     Returns extracted text/summary (max 200 chars), or None if AI unavailable.
     """
-    api_key = os.getenv("MINIMAX_API_KEY", "")
+    api_key = os.getenv("OPENROUTER_API_KEY", os.getenv("MINIMAX_API_KEY", ""))
     if not api_key:
         logger.warning("MINIMAX_API_KEY not set, AI image analysis unavailable")
         return None
@@ -73,7 +73,7 @@ def analyze_image_ai(image_data: bytes, filename: str = "") -> str | None:
     data_url = f"data:{media_type};base64,{encoded}"
 
     payload = json.dumps({
-        "model": "MiniMax-M3",
+        "model": os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-v4-flash-0731"),
         "messages": [
             {
                 "role": "user",

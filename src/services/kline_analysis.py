@@ -15,7 +15,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-MINIMAX_API_URL = "https://api.minimax.io/v1/chat/completions"
+MINIMAX_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 
 # =============================================================================
@@ -643,7 +643,7 @@ def analyze_kline(stock_code: str, stock_name: str, kline_data: list[dict],
     patterns = detect_patterns(kline_data)
 
     # Step 3: Call LLM
-    api_key = os.getenv("MINIMAX_API_KEY", "")
+    api_key = os.getenv("OPENROUTER_API_KEY", os.getenv("MINIMAX_API_KEY", ""))
     if not api_key:
         return {
             "indicators": indicators,

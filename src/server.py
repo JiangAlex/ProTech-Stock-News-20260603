@@ -345,6 +345,7 @@ async def _twii_intraday_job():
     last_market_close_date = None
     last_integration_date = None
     last_opening_report_date = None
+    _tick_consecutive_failures = 0  # Track MIS API consecutive failures for backoff
 
     def _get_telegram_config():
         """Get bot token and chat id."""
@@ -472,12 +473,29 @@ async def _twii_intraday_job():
                 except Exception as e:
                     _logger.error(f"TWII opening report error: {e}")
 
-            # Market hours: tick every 60 seconds
+            # Market hours: tick every 90s (+ jitter + adaptive backoff on failure)
+            import random
             try:
                 on_tick(now)
+                # Success: check if bars were actually updated
+                from src.services.twii_intraday import _current_bar
+                if _current_bar:
+                    _tick_consecutive_failures = 0
+                else:
+                    _tick_consecutive_failures += 1
             except Exception as e:
                 _logger.error(f"TWII intraday tick error: {e}")
-            await asyncio.sleep(60)
+                _tick_consecutive_failures += 1
+
+            # Base interval 90s + random jitter ±15s
+            base_interval = 90
+            jitter = random.uniform(-15, 15)
+            # Adaptive backoff: add 60s per consecutive failure, cap at 300s total
+            backoff = min(_tick_consecutive_failures * 60, 210)  # 90 + 210 = 300s max
+            sleep_time = max(30, base_interval + jitter + backoff)
+            if _tick_consecutive_failures >= 2:
+                _logger.info(f"TWII tick backoff: {_tick_consecutive_failures} failures, sleeping {sleep_time:.0f}s")
+            await asyncio.sleep(sleep_time)
 
         elif now > market_close and last_market_close_date != today_str:
             # Market just closed: run close handler once
@@ -1543,7 +1561,7 @@ def api_twii_intraday_status():
     pred_history = _load_prediction_history()
     recent_bars = get_recent_bars(days=5)
     return {
-        "minimax_api_key_set": bool(os.getenv("MINIMAX_API_KEY", "")),
+        "minimax_api_key_set": bool(os.getenv("OPENROUTER_API_KEY", os.getenv("MINIMAX_API_KEY", ""))),
         "current_bar": _current_bar,
         "today_bars_count": len(_today_bars),
         "today_bars": _today_bars[-3:] if _today_bars else [],
@@ -1576,16 +1594,16 @@ def api_twii_test_predict():
             return {"error": f"Indicator error: {indicators['error']}", "bars_count": len(bars)}
 
         # Test MiniMax API directly
-        api_key = os.getenv("MINIMAX_API_KEY", "")
+        api_key = os.getenv("OPENROUTER_API_KEY", os.getenv("MINIMAX_API_KEY", ""))
         if not api_key:
-            return {"error": "MINIMAX_API_KEY not set"}
+            return {"error": "OPENROUTER_API_KEY (or MINIMAX_API_KEY) not set"}
 
         feedback = _build_pll_feedback()
         prompt = _build_prediction_prompt(bars, indicators, feedback)
 
         import json as _json
         data = _json.dumps({
-            "model": "MiniMax-M2.7",
+            "model": os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-v4-flash-0731"),
             "messages": [
                 {"role": "system", "content": "你是台股大盤 60 分線短線分析專家，只輸出 JSON 格式。"},
                 {"role": "user", "content": prompt},

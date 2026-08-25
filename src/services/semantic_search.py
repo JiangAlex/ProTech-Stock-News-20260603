@@ -8,7 +8,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-MINIMAX_API_URL = "https://api.minimax.io/v1/chat/completions"
+MINIMAX_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # Conversation history per user (in-memory)
 _conversation_history: dict[str, list] = {}
@@ -41,7 +41,7 @@ def expand_keywords(query: str) -> list[str]:
     Returns a list of keywords (including the original query).
     Falls back to just the original query if API fails.
     """
-    api_key = os.getenv("MINIMAX_API_KEY", "")
+    api_key = os.getenv("OPENROUTER_API_KEY", os.getenv("MINIMAX_API_KEY", ""))
     if not api_key:
         return [query]
 
@@ -59,7 +59,7 @@ def expand_keywords(query: str) -> list[str]:
 關鍵詞："""
 
     data = json.dumps({
-        "model": "MiniMax-M2.7",
+        "model": os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-v4-flash-0731"),
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 1000,
         "temperature": 0.3,
@@ -214,7 +214,7 @@ def ask_news(query: str, user_id: str = "default") -> dict:
         return {"answer": "❌ 搜尋到圖片但無文字內容可供分析。", "keywords": keywords, "sources": top_results}
 
     # Step 3: Call MiniMax M2.7 to generate answer
-    api_key = os.getenv("MINIMAX_API_KEY", "")
+    api_key = os.getenv("OPENROUTER_API_KEY", os.getenv("MINIMAX_API_KEY", ""))
     if not api_key:
         return {"answer": "⚠️ AI 未設定（缺少 MINIMAX_API_KEY）", "keywords": keywords, "sources": top_results}
 
@@ -249,7 +249,7 @@ def ask_news(query: str, user_id: str = "default") -> dict:
 {query}"""
 
     data = json.dumps({
-        "model": "MiniMax-M2.7",
+        "model": os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-v4-flash-0731"),
         "messages": _build_messages(user_id, prompt),
         "max_tokens": 2000,
         "temperature": 0.3,
@@ -462,7 +462,7 @@ def _answer_from_indicators(query: str, user_id: str = "default") -> dict | None
 
 def _answer_general(query: str, user_id: str = "default") -> dict | None:
     """Fallback: use LLM general knowledge to answer stock/finance related questions."""
-    api_key = os.getenv("MINIMAX_API_KEY", "")
+    api_key = os.getenv("OPENROUTER_API_KEY", os.getenv("MINIMAX_API_KEY", ""))
     if not api_key:
         return None
 
@@ -482,7 +482,7 @@ def _answer_general(query: str, user_id: str = "default") -> dict | None:
 {query}"""
 
     data = json.dumps({
-        "model": "MiniMax-M2.7",
+        "model": os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-v4-flash-0731"),
         "messages": _build_messages(user_id, prompt),
         "max_tokens": 1500,
         "temperature": 0.3,

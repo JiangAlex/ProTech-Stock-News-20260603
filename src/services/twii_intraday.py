@@ -37,7 +37,7 @@ MIS_API_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
 TWII_EX_CH = "tse_t00.tw"  # 加權指數
 
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/%5ETWII"
-MINIMAX_API_URL = "https://api.minimax.io/v1/chat/completions"
+MINIMAX_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # 60-min bar time slots (start_time, end_time)
 BAR_SLOTS = [
@@ -604,7 +604,7 @@ def predict_next_bar() -> Optional[dict]:
         {"support": float, "resistance": float, "ma35_analysis": str, "ma200_analysis": str, "reasoning": str}
         or None on failure.
     """
-    api_key = os.getenv("MINIMAX_API_KEY", "")
+    api_key = os.getenv("OPENROUTER_API_KEY", os.getenv("MINIMAX_API_KEY", ""))
     if not api_key:
         logger.warning("MINIMAX_API_KEY not set, skipping TWII prediction")
         return None
@@ -1000,7 +1000,7 @@ def run_daily_integration() -> Optional[dict]:
         }
         or None on failure.
     """
-    api_key = os.getenv("MINIMAX_API_KEY", "")
+    api_key = os.getenv("OPENROUTER_API_KEY", os.getenv("MINIMAX_API_KEY", ""))
     if not api_key:
         logger.warning("MINIMAX_API_KEY not set, skipping TWII daily integration")
         return None
@@ -1406,7 +1406,7 @@ def on_tick(now: datetime = None):
         if completed_bar:
             # Step 1: Verify last prediction
             verification = verify_last_prediction(completed_bar)
-            logger.info(f"on_tick: verification={'correct' if verification and verification.get('is_correct') else 'incorrect' if verification else 'none'}")
+            logger.info(f"on_tick: verification={'correct' if verification and verification.get('is_within_range') else 'incorrect' if verification else 'none'}")
 
             # Step 2: Save bars to file
             save_today_bars_to_file()

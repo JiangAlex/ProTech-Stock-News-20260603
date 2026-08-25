@@ -20,7 +20,7 @@ from src.core.database import get_analysis_preferences, get_all_trades
 
 logger = logging.getLogger(__name__)
 
-MINIMAX_API_URL = "https://api.minimax.io/v1/chat/completions"
+MINIMAX_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # Conversation history for portfolio analysis (in-memory, per user)
 _portfolio_history: dict[str, list] = {}
@@ -308,7 +308,7 @@ def analyze_portfolio(user_id: str = "default") -> dict:
         }
 
     # Step 2: 檢查 API key
-    api_key = os.getenv("MINIMAX_API_KEY", "")
+    api_key = os.getenv("OPENROUTER_API_KEY", os.getenv("MINIMAX_API_KEY", ""))
     if not api_key:
         return {
             "portfolio": portfolio,

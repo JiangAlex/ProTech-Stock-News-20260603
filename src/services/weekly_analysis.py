@@ -26,7 +26,7 @@ from src.core.database import add_note
 
 logger = logging.getLogger(__name__)
 
-MINIMAX_API_URL = "https://api.minimax.io/v1/chat/completions"
+MINIMAX_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 
 def get_all_watchlist_stocks() -> list[dict]:
@@ -136,7 +136,7 @@ def _build_weekly_prompt(stock_code: str, stock_name: str,
 
 def analyze_single_stock(stock_code: str, stock_name: str) -> str | None:
     """對單一股票執行 AI 分析（含歷史對比）。"""
-    api_key = os.getenv("MINIMAX_API_KEY", "")
+    api_key = os.getenv("OPENROUTER_API_KEY", os.getenv("MINIMAX_API_KEY", ""))
     if not api_key:
         return None
 

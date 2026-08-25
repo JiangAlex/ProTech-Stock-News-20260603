@@ -20,7 +20,7 @@ ANUE_API_BASE = "https://api.cnyes.com/media/api/v1/newslist/category"
 ANUE_NEWS_URL = "https://news.cnyes.com/news/id"
 
 # --- MiniMax AI ---
-MINIMAX_API_URL = "https://api.minimax.io/v1/chat/completions"
+MINIMAX_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 
 def _fetch_url(url: str, timeout: int = 15) -> str | None:
@@ -442,7 +442,7 @@ def analyze_finance_news_ai(news_items: list[dict]) -> str | None:
     使用 MiniMax AI 分析財經新聞重點摘要，包含概念股/族群/類股/個股/產業資金輪動分析。
     Returns: AI 分析結果文字，或 None。
     """
-    api_key = os.getenv("MINIMAX_API_KEY", "")
+    api_key = os.getenv("OPENROUTER_API_KEY", os.getenv("MINIMAX_API_KEY", ""))
     if not api_key:
         logger.error("MINIMAX_API_KEY not set, cannot analyze finance news")
         return None

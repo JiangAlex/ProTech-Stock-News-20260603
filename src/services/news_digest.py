@@ -10,7 +10,7 @@ from datetime import date, timedelta
 
 logger = logging.getLogger(__name__)
 
-MINIMAX_API_URL = "https://api.minimax.io/v1/chat/completions"
+MINIMAX_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 
 def generate_weekly_digest(target_date: date = None) -> dict | None:
@@ -71,7 +71,7 @@ def generate_weekly_digest(target_date: date = None) -> dict | None:
     context_text = "\n\n---\n".join(context_parts[:max_total])
 
     # Call MiniMax AI to generate digest
-    api_key = os.getenv("MINIMAX_API_KEY", "")
+    api_key = os.getenv("OPENROUTER_API_KEY", os.getenv("MINIMAX_API_KEY", ""))
     if not api_key:
         logger.error("MINIMAX_API_KEY not set, cannot generate digest")
         return None
