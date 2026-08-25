@@ -1635,3 +1635,374 @@ def get_intraday_feedback_for_news_ai() -> str:
         lines.append(pll)
 
     return "\n".join(lines) if len(lines) > 1 else ""
+
+
+# =============================================================================
+# 10b. Prediction Stats API (命中率統計資料)
+# =============================================================================
+
+def get_prediction_stats() -> dict:
+    """Return prediction accuracy statistics for API consumption.
+
+    Returns dict with keys:
+    - daily_stats: last 30 days of daily accuracy
+    - slot_stats: per-timeslot cumulative accuracy
+    - overall: aggregate totals
+    - trend: this week vs last week comparison
+    - today: real-time today stats
+    """
+    history = _load_prediction_history()
+
+    # --- daily_stats: last 30 days, sorted by date ---
+    cutoff = (date.today() - timedelta(days=30)).isoformat()
+    daily_stats = []
+    for d_str in sorted(history.keys()):
+        if d_str < cutoff:
+            continue
+        entry = history[d_str]
+        daily_stats.append({
+            "date": d_str,
+            "total": entry.get("total", 0),
+            "correct": entry.get("correct", 0),
+            "accuracy": entry.get("accuracy", 0.0),
+        })
+
+    # --- slot_stats: group all details by bar_time ---
+    slot_totals: dict = {}  # {bar_time: {"total": int, "correct": int}}
+    for d_str, entry in history.items():
+        for detail in entry.get("details", []):
+            bar_time = detail.get("bar_time", "")
+            if not bar_time:
+                continue
+            if bar_time not in slot_totals:
+                slot_totals[bar_time] = {"total": 0, "correct": 0}
+            slot_totals[bar_time]["total"] += 1
+            if detail.get("is_within_range"):
+                slot_totals[bar_time]["correct"] += 1
+
+    slot_stats = {}
+    for bt in sorted(slot_totals.keys()):
+        t = slot_totals[bt]["total"]
+        c = slot_totals[bt]["correct"]
+        slot_stats[bt] = {
+            "total": t,
+            "correct": c,
+            "accuracy": round(c / t * 100, 1) if t > 0 else 0.0,
+        }
+
+    # --- overall: aggregate all dates ---
+    overall_total = sum(e.get("total", 0) for e in history.values())
+    overall_correct = sum(e.get("correct", 0) for e in history.values())
+    overall = {
+        "total": overall_total,
+        "correct": overall_correct,
+        "accuracy": round(overall_correct / overall_total * 100, 1) if overall_total > 0 else 0.0,
+    }
+
+    # --- trend: this week vs last week ---
+    today_date = date.today()
+    # Monday = 0, so start of this week is today - weekday
+    this_week_start = today_date - timedelta(days=today_date.weekday())
+    last_week_start = this_week_start - timedelta(days=7)
+    last_week_end = this_week_start - timedelta(days=1)
+
+    this_week_total = 0
+    this_week_correct = 0
+    last_week_total = 0
+    last_week_correct = 0
+
+    for d_str, entry in history.items():
+        try:
+            d = date.fromisoformat(d_str)
+        except ValueError:
+            continue
+        if this_week_start <= d <= today_date:
+            this_week_total += entry.get("total", 0)
+            this_week_correct += entry.get("correct", 0)
+        elif last_week_start <= d <= last_week_end:
+            last_week_total += entry.get("total", 0)
+            last_week_correct += entry.get("correct", 0)
+
+    this_week_acc = round(this_week_correct / this_week_total * 100, 1) if this_week_total > 0 else 0.0
+    last_week_acc = round(last_week_correct / last_week_total * 100, 1) if last_week_total > 0 else 0.0
+
+    if this_week_acc > last_week_acc + 1:
+        direction = "up"
+    elif this_week_acc < last_week_acc - 1:
+        direction = "down"
+    else:
+        direction = "flat"
+
+    trend = {
+        "this_week": {"total": this_week_total, "correct": this_week_correct, "accuracy": this_week_acc},
+        "last_week": {"total": last_week_total, "correct": last_week_correct, "accuracy": last_week_acc},
+        "direction": direction,
+    }
+
+    # --- today: from _today_stats ---
+    today_info = {
+        "total": _today_stats.get("total", 0),
+        "correct": _today_stats.get("correct", 0),
+        "accuracy": _today_stats.get("accuracy", 0.0),
+        "consecutive_failures": _today_stats.get("consecutive_failures", 0),
+    }
+
+    return {
+        "daily_stats": daily_stats,
+        "slot_stats": slot_stats,
+        "overall": overall,
+        "trend": trend,
+        "today": today_info,
+    }
+
+
+# =============================================================================
+# 11. Weekly 60-min Review (週度檢討報告)
+# =============================================================================
+
+def generate_weekly_60min_review() -> str:
+    """Generate weekly 60-min prediction review report in Telegram HTML format.
+
+    Analyzes last 7 days of prediction history:
+    - Overall hit rate (this week vs last week)
+    - Per-timeslot hit rate
+    - S/R deviation analysis on misses
+    - Consecutive failure pattern
+    - Correction suggestions
+
+    Returns: HTML-formatted Telegram message string.
+    """
+    history = _load_prediction_history()
+    if not history:
+        return "📊 <b>60 分線週檢討</b>\n\n無預測歷史資料。"
+
+    today = date.today()
+    # This week: last 7 days
+    week_start = today - timedelta(days=6)
+    # Last week: 8~14 days ago
+    prev_week_start = today - timedelta(days=13)
+    prev_week_end = today - timedelta(days=7)
+
+    # Separate this week and last week data
+    this_week_dates = []
+    last_week_dates = []
+    for d_str in sorted(history.keys()):
+        try:
+            d = date.fromisoformat(d_str)
+        except ValueError:
+            continue
+        if week_start <= d <= today:
+            this_week_dates.append(d_str)
+        elif prev_week_start <= d <= prev_week_end:
+            last_week_dates.append(d_str)
+
+    if not this_week_dates:
+        return "📊 <b>60 分線週檢討</b>\n\n本週無預測資料。"
+
+    # --- 1. Overall hit rate ---
+    week_total = 0
+    week_correct = 0
+    week_details = []  # flat list of all detail records with date info
+
+    for d_str in this_week_dates:
+        day_data = history[d_str]
+        week_total += day_data.get("total", 0)
+        week_correct += day_data.get("correct", 0)
+        for detail in day_data.get("details", []):
+            week_details.append({**detail, "date": d_str})
+
+    week_accuracy = round(week_correct / week_total * 100, 1) if week_total > 0 else 0
+
+    # Last week stats
+    last_week_total = 0
+    last_week_correct = 0
+    for d_str in last_week_dates:
+        day_data = history[d_str]
+        last_week_total += day_data.get("total", 0)
+        last_week_correct += day_data.get("correct", 0)
+    last_week_accuracy = round(last_week_correct / last_week_total * 100, 1) if last_week_total > 0 else 0
+
+    # Date range display
+    week_start_display = week_start.strftime("%m/%d")
+    week_end_display = today.strftime("%m/%d")
+
+    lines = [f"📊 <b>60 分線週檢討</b>（{week_start_display}~{week_end_display}）"]
+    lines.append("")
+
+    # Hit rate with trend arrow
+    trend_arrow = ""
+    if last_week_total > 0:
+        if week_accuracy > last_week_accuracy:
+            trend_arrow = "↑"
+        elif week_accuracy < last_week_accuracy:
+            trend_arrow = "↓"
+        else:
+            trend_arrow = "→"
+        lines.append(
+            f"🎯 本週命中率：{week_correct}/{week_total}（{week_accuracy}%）"
+            f"｜上週：{last_week_correct}/{last_week_total}（{last_week_accuracy}%）{trend_arrow}"
+        )
+    else:
+        lines.append(f"🎯 本週命中率：{week_correct}/{week_total}（{week_accuracy}%）")
+
+    # --- 2. Per-timeslot hit rate ---
+    lines.append("")
+    lines.append("⏰ <b>各時段命中率</b>")
+
+    # Timeslot mapping: bar_time -> (start, end)
+    slot_map = {
+        "09:00": ("09:00", "10:00"),
+        "10:00": ("10:00", "11:00"),
+        "11:00": ("11:00", "12:00"),
+        "12:00": ("12:00", "13:00"),
+    }
+
+    slot_stats = {}  # bar_time -> {total, correct}
+    for detail in week_details:
+        bar_time = detail.get("bar_time", "")
+        if bar_time not in slot_map:
+            continue
+        if bar_time not in slot_stats:
+            slot_stats[bar_time] = {"total": 0, "correct": 0}
+        slot_stats[bar_time]["total"] += 1
+        if detail.get("is_within_range"):
+            slot_stats[bar_time]["correct"] += 1
+
+    lowest_slot = None
+    lowest_accuracy = 100.0
+    for bar_time in ["09:00", "10:00", "11:00", "12:00"]:
+        if bar_time not in slot_stats:
+            continue
+        s = slot_stats[bar_time]
+        start, end = slot_map[bar_time]
+        slot_acc = round(s["correct"] / s["total"] * 100, 0) if s["total"] > 0 else 0
+        star = "⭐" if slot_acc >= 75 else ""
+        lines.append(f"{start}~{end}：{s['correct']}/{s['total']}（{slot_acc:.0f}%）{star}")
+        if slot_acc < lowest_accuracy:
+            lowest_accuracy = slot_acc
+            lowest_slot = bar_time
+
+    # --- 3. S/R Deviation Analysis ---
+    lines.append("")
+    lines.append("📐 <b>S/R 偏差分析</b>")
+
+    support_miss_diffs = []  # support - actual_close when actual < support
+    resistance_miss_diffs = []  # actual_close - resistance when actual > resistance
+
+    for detail in week_details:
+        if detail.get("is_within_range"):
+            continue  # only analyze misses
+        actual = detail.get("actual_close")
+        support = detail.get("support")
+        resistance = detail.get("resistance")
+        if actual is None:
+            continue
+        if support and actual < support:
+            support_miss_diffs.append(support - actual)
+        if resistance and actual > resistance:
+            resistance_miss_diffs.append(actual - resistance)
+
+    if support_miss_diffs:
+        support_avg_miss = round(sum(support_miss_diffs) / len(support_miss_diffs), 0)
+        lines.append(f"支撐偏高（miss 時平均偏 +{support_avg_miss:.0f} 點）→ 建議下修支撐")
+    else:
+        lines.append("支撐：本週無跌破支撐的 miss")
+
+    if resistance_miss_diffs:
+        resistance_avg_miss = round(sum(resistance_miss_diffs) / len(resistance_miss_diffs), 0)
+        lines.append(f"壓力偏低（miss 時平均偏 -{resistance_avg_miss:.0f} 點）→ 建議上修壓力")
+    else:
+        lines.append("壓力：本週無突破壓力的 miss")
+
+    # --- 4. Consecutive Failure Pattern ---
+    lines.append("")
+    lines.append("🔄 <b>連續失敗模式</b>")
+
+    # Build chronological sequence of results
+    sorted_details = sorted(week_details, key=lambda x: (x.get("date", ""), x.get("bar_time", "")))
+
+    max_consecutive = 0
+    max_consecutive_start = None
+    max_consecutive_end = None
+    current_consecutive = 0
+    current_start = None
+
+    for detail in sorted_details:
+        if not detail.get("is_within_range"):
+            current_consecutive += 1
+            if current_consecutive == 1:
+                current_start = detail
+            if current_consecutive > max_consecutive:
+                max_consecutive = current_consecutive
+                max_consecutive_start = current_start
+                max_consecutive_end = detail
+        else:
+            current_consecutive = 0
+            current_start = None
+
+    if max_consecutive >= 2 and max_consecutive_start and max_consecutive_end:
+        start_label = f"{max_consecutive_start['date'][5:]} {max_consecutive_start.get('bar_time', '')}"
+        end_label = f"{max_consecutive_end['date'][5:]} {max_consecutive_end.get('bar_time', '')}"
+        lines.append(f"最長連續失敗：{max_consecutive} 次（{start_label}~{end_label}）")
+    elif max_consecutive == 1:
+        lines.append("最長連續失敗：1 次（無連續失敗模式）")
+    else:
+        lines.append("本週無失敗紀錄 🎉")
+
+    if lowest_slot and lowest_accuracy < 75:
+        lines.append(f"失敗集中時段：{lowest_slot}（命中率最低 {lowest_accuracy:.0f}%）")
+
+    # --- 5. Correction Suggestions ---
+    lines.append("")
+    lines.append("💡 <b>修正建議</b>")
+
+    suggestions = []
+    if support_miss_diffs:
+        buffer = round(sum(support_miss_diffs) / len(support_miss_diffs), 0)
+        suggestions.append(f"- 支撐位建議多留 {buffer:.0f} 點緩衝")
+    if resistance_miss_diffs:
+        buffer = round(sum(resistance_miss_diffs) / len(resistance_miss_diffs), 0)
+        suggestions.append(f"- 壓力位建議多留 {buffer:.0f} 點緩衝")
+    if lowest_slot and lowest_accuracy < 75:
+        suggestions.append(f"- {lowest_slot} 時段波動較大，建議擴大 S/R 區間")
+    if last_week_total > 0 and week_accuracy < last_week_accuracy:
+        diff = round(last_week_accuracy - week_accuracy, 1)
+        suggestions.append(f"- 本週命中率下降 {diff}%，建議檢視市場波動是否加大")
+
+    if not suggestions:
+        suggestions.append("- 本週表現穩定，維持現有策略")
+
+    lines.extend(suggestions)
+
+    # Disclaimer
+    lines.append("")
+    lines.append("⚠️ 以上為歷史統計分析，僅供研究參考。")
+
+    return "\n".join(lines)
+
+
+def push_weekly_60min_review():
+    """Generate weekly 60-min review and push to Telegram.
+
+    Called by weekly scheduler (e.g., every Sunday 18:00).
+    """
+    try:
+        from src.services.telegram_service import send_telegram_message
+        from src.core.database import get_alert_settings
+
+        settings = get_alert_settings("default")
+        bot_token = settings.get("telegram_bot_token", "")
+        chat_id = settings.get("telegram_chat_id", "")
+        if not bot_token or not chat_id:
+            logger.warning("push_weekly_60min_review: Telegram bot_token or chat_id not configured")
+            return
+
+        msg = generate_weekly_60min_review()
+        if not msg:
+            logger.warning("push_weekly_60min_review: generate_weekly_60min_review returned empty")
+            return
+
+        send_telegram_message(bot_token, chat_id, msg)
+        logger.info("Weekly 60-min review pushed to Telegram")
+    except Exception as e:
+        logger.error(f"push_weekly_60min_review failed: {e}")

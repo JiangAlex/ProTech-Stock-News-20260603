@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>60分線命中率 — ProTech Stock</title>
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f1117;color:#e1e5ea;min-height:100vh}
+        .header{background:#1a1d28;padding:10px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #2a2d38;flex-wrap:wrap}
+        .header h1{font-size:16px;color:#4fc3f7}
+        .header a{color:#8b9dc3;text-decoration:none;font-size:12px;padding:5px 10px;border-radius:5px;border:1px solid #3a3d48;background:#2a2d38;transition:all 0.15s}
+        .header a:hover{background:#3a3d48;color:#4fc3f7}
+        .header a.active{background:#4fc3f7;color:#0f1117;border-color:#4fc3f7}
+        .container{max-width:1400px;margin:0 auto;padding:16px}
+        .stats-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px}
+        .stat-card{background:#1a1d28;border:1px solid #2a2d38;border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:6px}
+        .stat-card .label{font-size:11px;color:#8b9dc3;text-transform:uppercase;letter-spacing:0.5px}
+        .stat-card .value{font-size:28px;font-weight:700;color:#4fc3f7}
+        .stat-card .sub{font-size:11px;color:#6b7a8d}
+        .stat-card .trend-up{color:#66bb6a}
+        .stat-card .trend-down{color:#ef5350}
+        .stat-card .trend-flat{color:#ffeb3b}
+        .charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+        .chart-panel{background:#1a1d28;border:1px solid #2a2d38;border-radius:8px;overflow:hidden}
+        .chart-panel.full-width{grid-column:1/-1}
+        .chart-panel-header{padding:10px 14px;border-bottom:1px solid #2a2d38;display:flex;align-items:center;justify-content:space-between}
+        .chart-panel-header h2{font-size:13px;color:#8b9dc3;font-weight:500}
+        .chart-panel-body{padding:12px;position:relative;min-height:280px}
+        .loading{text-align:center;padding:40px;color:#6b7a8d;font-size:12px}
+        .error{text-align:center;padding:40px;color:#ef5350;font-size:12px}
+        .slot-bar-container{display:flex;align-items:flex-end;justify-content:center;gap:24px;height:240px;padding:20px 16px 0}
+        .slot-bar-item{display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;max-width:120px}
+        .slot-bar{width:100%;border-radius:6px 6px 0 0;transition:height 0.6s ease;min-height:4px;position:relative}
+        .slot-bar-label{font-size:11px;color:#8b9dc3;white-space:nowrap}
+        .slot-bar-value{font-size:13px;font-weight:700;color:#e1e5ea}
+        .slot-bar-count{font-size:10px;color:#6b7a8d}
+        .no-data{text-align:center;padding:60px;color:#6b7a8d;font-size:13px}
+        @media(max-width:900px){
+            .charts-grid{grid-template-columns:1fr}
+            .stats-cards{grid-template-columns:1fr 1fr}
+            .slot-bar-container{gap:12px}
+        }
+        @media(max-width:500px){
+            .stats-cards{grid-template-columns:1fr}
+            .header{padding:10px 12px}
+            .container{padding:10px}
+        }
+    </style>
+</head>
+<body>
+<div class="header">
+    <h1>📈 ProTech Stock</h1>
+    <a href="/">🏠 主頁</a>
+    <a href="/twii-accuracy" class="active">🎯 60分線命中率</a>
+</div>
+
+<div class="container">
+    <!-- Stats Cards -->
+    <div class="stats-cards" id="statsCards">
+        <div class="stat-card">
+            <span class="label">整體命中率</span>
+            <span class="value" id="overallAccuracy">--</span>
+            <span class="sub" id="overallSub">載入中...</span>
+        </div>
+        <div class="stat-card">
+            <span class="label">本週 vs 上週</span>
+            <span class="value" id="trendValue">--</span>
+            <span class="sub" id="trendSub">載入中...</span>
+        </div>
+        <div class="stat-card">
+            <span class="label">今日即時</span>
+            <span class="value" id="todayAccuracy">--</span>
+            <span class="sub" id="todaySub">載入中...</span>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts-grid">
+        <!-- Daily Accuracy Trend -->
+        <div class="chart-panel full-width">
+            <div class="chart-panel-header">
+                <h2>📈 每日命中率走勢（近 30 天）</h2>
+            </div>
+            <div class="chart-panel-body" id="dailyChartContainer">
+                <div class="loading">載入中...</div>
+            </div>
+        </div>
+
+        <!-- Slot Comparison Bar Chart -->
+        <div class="chart-panel full-width">
+            <div class="chart-panel-header">
+                <h2>📊 各時段命中率比較</h2>
+            </div>
+            <div class="chart-panel-body" id="slotChartContainer">
+                <div class="loading">載入中...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function(){
+    const SLOT_COLORS = ['#4fc3f7','#ffb74d','#66bb6a','#ce93d8','#ef5350','#ffeb3b'];
+
+    async function loadStats(){
+        try {
+            const res = await fetch('/api/twii-intraday/stats');
+            if(!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            renderCards(data);
+            renderDailyChart(data.daily_stats);
+            renderSlotChart(data.slot_stats);
+        } catch(e){
+            console.error('Failed to load stats:', e);
+            document.getElementById('dailyChartContainer').innerHTML = '<div class="error">載入失敗: ' + e.message + '</div>';
+            document.getElementById('slotChartContainer').innerHTML = '<div class="error">載入失敗: ' + e.message + '</div>';
+        }
+    }
+
+    function renderCards(data){
+        // Overall accuracy
+        const overall = data.overall || {};
+        const overallAcc = overall.total > 0 ? ((overall.correct / overall.total) * 100).toFixed(1) : '--';
+        document.getElementById('overallAccuracy').textContent = overallAcc !== '--' ? overallAcc + '%' : '--';
+        document.getElementById('overallSub').textContent = overall.total > 0
+            ? `共 ${overall.total} 次預測，命中 ${overall.correct} 次`
+            : '尚無資料';
+
+        // Trend: this week vs last week
+        const trend = data.trend || {};
+        const thisWeek = trend.this_week != null ? (trend.this_week * 100).toFixed(1) : null;
+        const lastWeek = trend.last_week != null ? (trend.last_week * 100).toFixed(1) : null;
+        const trendEl = document.getElementById('trendValue');
+        const trendSubEl = document.getElementById('trendSub');
+
+        if(thisWeek != null){
+            trendEl.textContent = thisWeek + '%';
+            const dir = trend.direction;
+            if(dir === 'up'){
+                trendEl.classList.add('trend-up');
+                trendSubEl.innerHTML = `<span class="trend-up">▲</span> 上週 ${lastWeek || '--'}% → 本週 ${thisWeek}%`;
+            } else if(dir === 'down'){
+                trendEl.classList.add('trend-down');
+                trendSubEl.innerHTML = `<span class="trend-down">▼</span> 上週 ${lastWeek || '--'}% → 本週 ${thisWeek}%`;
+            } else {
+                trendEl.classList.add('trend-flat');
+                trendSubEl.innerHTML = `<span class="trend-flat">—</span> 上週 ${lastWeek || '--'}% → 本週 ${thisWeek}%`;
+            }
+        } else {
+            trendEl.textContent = '--';
+            trendSubEl.textContent = '本週尚無資料';
+        }
+
+        // Today
+        const today = data.today || {};
+        const todayAcc = today.total > 0 ? ((today.correct / today.total) * 100).toFixed(1) : '--';
+        document.getElementById('todayAccuracy').textContent = todayAcc !== '--' ? todayAcc + '%' : '--';
+        document.getElementById('todaySub').textContent = today.total > 0
+            ? `今日 ${today.total} 次，命中 ${today.correct} 次`
+            : '今日尚無預測';
+    }
+
+    function renderDailyChart(dailyStats){
+        const container = document.getElementById('dailyChartContainer');
+        container.innerHTML = '';
+
+        if(!dailyStats || dailyStats.length === 0){
+            container.innerHTML = '<div class="no-data">尚無每日命中率資料</div>';
+            return;
+        }
+
+        const chart = LightweightCharts.createChart(container, {
+            width: container.clientWidth,
+            height: 260,
+            layout: { background: { color: '#1a1d28' }, textColor: '#8b9dc3' },
+            grid: { vertLines: { color: '#1f222d' }, horzLines: { color: '#1f222d' } },
+            timeScale: { borderColor: '#2a2d38' },
+            rightPriceScale: { borderColor: '#2a2d38' },
+            crosshair: { mode: 0 }
+        });
+
+        // Line series for accuracy trend
+        const lineSeries = chart.addLineSeries({
+            color: '#4fc3f7',
+            lineWidth: 2,
+            lastValueVisible: true,
+            priceLineVisible: false,
+            crosshairMarkerVisible: true,
+            priceFormat: { type: 'custom', formatter: (v) => v.toFixed(1) + '%' }
+        });
+
+        // Area fill below line
+        const areaSeries = chart.addAreaSeries({
+            topColor: 'rgba(79, 195, 247, 0.3)',
+            bottomColor: 'rgba(79, 195, 247, 0.02)',
+            lineColor: 'transparent',
+            lineWidth: 0,
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false
+        });
+
+        const lineData = dailyStats.map(d => ({
+            time: d.date,
+            value: d.accuracy != null ? d.accuracy * 100 : (d.total > 0 ? (d.correct / d.total) * 100 : 0)
+        })).filter(d => d.value >= 0);
+
+        lineSeries.setData(lineData);
+        areaSeries.setData(lineData);
+        chart.timeScale().fitContent();
+
+        // Handle resize
+        const ro = new ResizeObserver(() => {
+            chart.applyOptions({ width: container.clientWidth });
+        });
+        ro.observe(container);
+    }
+
+    function renderSlotChart(slotStats){
+        const container = document.getElementById('slotChartContainer');
+        container.innerHTML = '';
+
+        if(!slotStats || Object.keys(slotStats).length === 0){
+            container.innerHTML = '<div class="no-data">尚無各時段命中率資料</div>';
+            return;
+        }
+
+        // Convert slot_stats object to array
+        const slots = Object.entries(slotStats).map(([time, info]) => ({
+            time: time,
+            total: info.total || 0,
+            correct: info.correct || 0,
+            accuracy: info.accuracy != null ? info.accuracy : (info.total > 0 ? info.correct / info.total : 0)
+        })).sort((a, b) => a.time.localeCompare(b.time));
+
+        // Render as custom bar chart (Lightweight Charts doesn't have native vertical bar by category)
+        const maxAcc = Math.max(...slots.map(s => s.accuracy), 0.01);
+        const barHeight = 200;
+
+        const barContainer = document.createElement('div');
+        barContainer.className = 'slot-bar-container';
+        barContainer.style.height = (barHeight + 60) + 'px';
+
+        slots.forEach((slot, i) => {
+            const pct = slot.accuracy * 100;
+            const h = (slot.accuracy / Math.max(maxAcc, 0.5)) * barHeight;
+            const color = SLOT_COLORS[i % SLOT_COLORS.length];
+
+            const item = document.createElement('div');
+            item.className = 'slot-bar-item';
+            item.innerHTML = `
+                <span class="slot-bar-value">${pct.toFixed(1)}%</span>
+                <div class="slot-bar" style="height:${Math.max(h, 4)}px;background:${color};"></div>
+                <span class="slot-bar-label">${slot.time}</span>
+                <span class="slot-bar-count">${slot.correct}/${slot.total}</span>
+            `;
+            barContainer.appendChild(item);
+        });
+
+        container.appendChild(barContainer);
+    }
+
+    // Init
+    loadStats();
+})();
+</script>
+</body>
+</html>

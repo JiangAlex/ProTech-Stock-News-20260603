@@ -78,6 +78,7 @@ async def lifespan(app: FastAPI):
     background_tasks.append(asyncio.create_task(_daily_ai_feedback_job()))
     # TWII Intraday 60-min AI Feedback Learning
     background_tasks.append(asyncio.create_task(_twii_intraday_job()))
+    background_tasks.append(asyncio.create_task(_weekly_60min_review_job()))
     # Telegram Bot polling
     from src.core.database import init_telegram_discussions_table, init_telegram_users_table
     init_telegram_discussions_table()
@@ -574,6 +575,33 @@ async def _weekly_concept_update_job():
             _logger.error(f"Concept update job error: {e}")
 
 
+async def _weekly_60min_review_job():
+    """每週日 18:30 推播 60 分線週檢討報告。"""
+    import asyncio
+    from datetime import datetime, timedelta
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+
+    while True:
+        now = datetime.now()
+        # 計算下一個週日 18:30
+        days_until_sunday = (6 - now.weekday()) % 7
+        if days_until_sunday == 0 and (now.hour > 18 or (now.hour == 18 and now.minute >= 30)):
+            days_until_sunday = 7
+        target = (now + timedelta(days=days_until_sunday)).replace(
+            hour=18, minute=30, second=0, microsecond=0)
+        wait_seconds = (target - now).total_seconds()
+        _logger.info(f"Weekly 60min review job: next run at {target} (wait {wait_seconds:.0f}s)")
+        await asyncio.sleep(wait_seconds)
+
+        try:
+            from src.services.twii_intraday import push_weekly_60min_review
+            push_weekly_60min_review()
+            _logger.info("Weekly 60min review sent to Telegram")
+        except Exception as e:
+            _logger.error(f"Weekly 60min review job error: {e}")
+
+
 async def _daily_finance_news_job():
     """每小時抓取財經熱門新聞（疊加去重）+ 每日 17:00 AI 盤後分析 + Telegram。"""
     import asyncio
@@ -998,6 +1026,12 @@ def api_us_index_kline(symbol: str, period: str = Query("daily"), days: int = Qu
 @app.get("/", response_class=HTMLResponse)
 def index():
     return (TEMPLATES_DIR / "index.html").read_text(encoding="utf-8")
+
+
+@app.get("/twii-accuracy", response_class=HTMLResponse)
+def twii_accuracy_page():
+    """60-min prediction accuracy dashboard page."""
+    return (TEMPLATES_DIR / "twii-accuracy.html").read_text(encoding="utf-8")
 
 
 # --- Stock data ---
@@ -1632,6 +1666,14 @@ def api_twii_test_predict():
 
     except Exception as e:
         return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
+
+
+@app.get("/api/twii-intraday/stats")
+def api_twii_intraday_stats():
+    """Return TWII 60-min prediction accuracy statistics."""
+    from src.services.twii_intraday import get_prediction_stats
+    stats = get_prediction_stats()
+    return stats
 
 
 # --- Telegram Settings ---
