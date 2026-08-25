@@ -742,6 +742,41 @@ def _push_intraday_telegram(completed_bar: dict, verification: Optional[dict],
         lines.append(f"加權：{bar_close:.2f}（{bar_change:+.2f}, {bar_change_pct:+.2f}%）")
         lines.append(f"高/低：{completed_bar['high']:.2f} / {completed_bar['low']:.2f}")
 
+        # First bar of the day (09:00): add background info with prev day close + MA positions
+        if bar_time == "09:00" and not verification:
+            all_bars = get_recent_bars(days=45)
+            if len(all_bars) >= 5:
+                indicators = _compute_60min_indicators(all_bars)
+                if "error" not in indicators:
+                    lines.append(f"\n📋 <b>背景</b>")
+                    # Previous day's last close (prev_close from indicators = the bar before today's first)
+                    lines.append(f"昨收：{indicators['prev_close']:.2f}")
+                    # Gap info
+                    gap = bar_close - indicators['prev_close']
+                    gap_pct = round(gap / indicators['prev_close'] * 100, 2) if indicators['prev_close'] > 0 else 0
+                    if abs(gap_pct) >= 0.1:
+                        gap_dir = "跳空上漲" if gap > 0 else "跳空下跌"
+                        lines.append(f"{gap_dir}：{gap:+.2f}（{gap_pct:+.2f}%）")
+                    # MA positions
+                    ma_parts = []
+                    if indicators.get("ma5"):
+                        ma_parts.append(f"MA5:{indicators['ma5']:.0f}")
+                    if indicators.get("ma10"):
+                        ma_parts.append(f"MA10:{indicators['ma10']:.0f}")
+                    if indicators.get("ma20"):
+                        ma_parts.append(f"MA20:{indicators['ma20']:.0f}")
+                    if ma_parts:
+                        lines.append(" | ".join(ma_parts))
+                    ma_long_parts = []
+                    if indicators.get("ma35"):
+                        pos = "上方" if bar_close > indicators['ma35'] else "下方"
+                        ma_long_parts.append(f"MA35:{indicators['ma35']:.0f}（{pos}{abs(indicators['ma35_dist']):.1f}%）")
+                    if indicators.get("ma200"):
+                        pos = "上方" if bar_close > indicators['ma200'] else "下方"
+                        ma_long_parts.append(f"MA200:{indicators['ma200']:.0f}（{pos}{abs(indicators['ma200_dist']):.1f}%）")
+                    if ma_long_parts:
+                        lines.append(" | ".join(ma_long_parts))
+
         # Verification of previous prediction
         if verification:
             prev_pred = None
@@ -771,11 +806,93 @@ def _push_intraday_telegram(completed_bar: dict, verification: Optional[dict],
             if prediction.get("reasoning"):
                 lines.append(f"理由：{prediction['reasoning']}")
 
+        # Last bar (13:00, slot_idx=4): no prediction, append daily summary instead
+        if not prediction and bar_time == "13:00":
+            summary = generate_intraday_summary()
+            if summary:
+                lines.append(f"\n📋 <b>當日總結</b>")
+                # Skip the first line (title) since we already have bar info
+                summary_lines = summary.split("\n")
+                for sl in summary_lines[1:]:
+                    if sl.strip():
+                        lines.append(sl)
+
         msg = "\n".join(lines)
         send_telegram_message(bot_token, chat_id, msg)
         logger.info(f"TWII intraday Telegram push sent ({bar_time})")
     except Exception as e:
         logger.error(f"TWII intraday Telegram push failed: {e}")
+
+
+def _push_market_close_telegram(summary: str):
+    """Push market close brief to Telegram at 13:30.
+
+    Includes: daily summary, final stats, and MA position overview.
+    """
+    try:
+        from src.services.telegram_service import send_telegram_message
+        from src.core.database import get_alert_settings
+
+        settings = get_alert_settings("default")
+        bot_token = settings.get("telegram_bot_token", "")
+        chat_id = settings.get("telegram_chat_id", "")
+        if not bot_token or not chat_id:
+            return
+
+        today_str = date.today().strftime("%m/%d")
+        lines = [f"🔔 <b>大盤 60 分線收盤簡報</b>（{today_str}）"]
+
+        # Intraday summary (OHLC + prediction stats)
+        if summary:
+            # Skip the title line from generate_intraday_summary (we have our own)
+            summary_lines = summary.split("\n")
+            for sl in summary_lines[1:]:
+                if sl.strip():
+                    lines.append(sl)
+        else:
+            lines.append("今日無 60 分線資料")
+
+        # MA position overview from historical bars
+        all_bars = get_recent_bars(days=45)
+        if len(all_bars) >= 5:
+            indicators = _compute_60min_indicators(all_bars)
+            if "error" not in indicators:
+                lines.append(f"\n📐 <b>均線位置</b>")
+                current = indicators["current"]
+                ma_info = []
+                if indicators.get("ma5"):
+                    rel = "▲" if current > indicators["ma5"] else "▼"
+                    ma_info.append(f"MA5:{indicators['ma5']:.0f}{rel}")
+                if indicators.get("ma10"):
+                    rel = "▲" if current > indicators["ma10"] else "▼"
+                    ma_info.append(f"MA10:{indicators['ma10']:.0f}{rel}")
+                if indicators.get("ma20"):
+                    rel = "▲" if current > indicators["ma20"] else "▼"
+                    ma_info.append(f"MA20:{indicators['ma20']:.0f}{rel}")
+                if ma_info:
+                    lines.append(" | ".join(ma_info))
+                if indicators.get("ma35"):
+                    pos = "站上" if current > indicators["ma35"] else "跌破"
+                    lines.append(f"MA35:{indicators['ma35']:.0f}（{pos}，距{abs(indicators['ma35_dist']):.1f}%）")
+                if indicators.get("ma200"):
+                    pos = "站上" if current > indicators["ma200"] else "跌破"
+                    lines.append(f"MA200:{indicators['ma200']:.0f}（{pos}，距{abs(indicators['ma200_dist']):.1f}%）")
+
+        # Cumulative accuracy
+        history = _load_prediction_history()
+        cum_total = sum(d.get("total", 0) for d in history.values())
+        cum_correct = sum(d.get("correct", 0) for d in history.values())
+        cum_accuracy = round(cum_correct / cum_total * 100, 1) if cum_total > 0 else 0
+        if cum_total > 0:
+            lines.append(f"\n🎯 累計命中率：{cum_accuracy}%（{cum_correct}/{cum_total}）")
+
+        lines.append("\n⏰ 17:05 將推送日線/週線綜合分析")
+
+        msg = "\n".join(lines)
+        send_telegram_message(bot_token, chat_id, msg)
+        logger.info("TWII market close Telegram brief sent")
+    except Exception as e:
+        logger.error(f"TWII market close Telegram brief failed: {e}")
 
 
 # =============================================================================
@@ -1457,6 +1574,9 @@ def on_market_close(now: datetime = None):
 
     summary = generate_intraday_summary()
     logger.info(f"TWII market close summary:\n{summary}")
+
+    # Push closing brief to Telegram
+    _push_market_close_telegram(summary)
 
 
 def on_daily_integration() -> Optional[str]:
