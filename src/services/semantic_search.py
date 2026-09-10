@@ -1,4 +1,11 @@
-"""Semantic expansion service — use MiniMax M2.7 to expand search keywords."""
+"""Semantic expansion service — use MiniMax M2.7 to expand search keywords.
+
+方向 2-2 (Redmine #41) 整合:
+- 新聞 ↔ ticker 關聯查詢走 `news_relation.find_news_for_ticker()`,
+  作為 ask_news() 的高階 fallback (取代舊的純 ILIKE 路徑)
+- 既有 search_notes() / ask_news() 行為保持向後相容
+- 透過 lazy import 避免循環依賴 (news_relation 反向引用會造成 import cycle)
+"""
 
 import os
 import json
@@ -197,6 +204,13 @@ def ask_news(query: str, user_id: str = "default") -> dict:
             if market_answer:
                 return market_answer
 
+        # 方向 2-2 (Redmine #41): 新聞 ↔ ticker 關聯查詢 — 走 news_relation
+        # 注意: 只在「找不到 watchlist_notes」且 query 看起來像 ticker / 概念時觸發,
+        # 避免對一般問句 (例: "最近有什麼利多?") 誤觸 DB 查詢
+        relation_answer = _answer_from_news_relations(query, user_id, days=recent_days or 7)
+        if relation_answer:
+            return relation_answer
+
         # Fallback: use LLM general knowledge to answer
         general_answer = _answer_general(query, user_id)
         if general_answer:
@@ -374,6 +388,71 @@ def _answer_from_concepts(concept_query: str, user_id: str = "default") -> dict 
     except Exception as e:
         logger.error(f"Concept stock query failed: {e}")
         return None
+
+
+def _answer_from_news_relations(query: str, user_id: str = "default", days: int = 7) -> dict | None:
+    """方向 2-2 (Redmine #41): 將 ticker / 概念 / 中文名查詢導向 news_relation。
+
+    觸發條件: query 看起來像 ticker / 概念 / 中文名 (短字串、無問句標點)
+    行為:
+      1. 呼叫 news_relation.find_news_for_ticker(query, days=...)
+      2. 找不到對應 entity → 回 None (讓 ask_news 退回一般 fallback)
+      3. 找到但沒新聞 → 回「尚無被 entity 標註的新聞」訊息
+      4. 找到 + 有新聞 → 用 news_relation.format_result_text() 摘要回傳
+
+    Returns: {"answer": str, "keywords": [...], "sources": [...]} 或 None
+    """
+    import re
+
+    # 啟發式: 太長 / 含問句詞 / 含技術指標詞 → 跳過, 退回其他 fallback
+    if len(query.strip()) > 30:
+        return None
+    if re.search(r'[?？!！。\n]|什麼|為何|如何|怎麼|分析|比較', query):
+        return None
+
+    # lazy import 避免循環 (news_relation 不引用 semantic_search)
+    try:
+        from src.services.news_relation import find_news_for_ticker
+    except Exception as e:
+        logger.warning(f"news_relation 載入失敗, skip: {e}")
+        return None
+
+    try:
+        result = find_news_for_ticker(query, days=days, limit=15)
+    except Exception as e:
+        logger.error(f"_answer_from_news_relations failed: {e}")
+        return None
+
+    if not result:
+        return None  # 找不到對應 entity → 退回其他 fallback
+
+    # 結果可能 0 筆 (LLM 抽取還沒跑), 也可能 N 筆
+    # 直接用 format_result_text 已有結構化輸出
+    from src.services.news_relation import format_result_text
+    answer = format_result_text(result)
+
+    sources = [
+        {
+            "news_id": n.news_id,
+            "news_date": (n.published_at or "")[:10] or None,
+            "title": n.title,
+            "source": n.source,
+            "relevance_score": n.relevance_score,
+        }
+        for n in result.news
+    ]
+
+    _save_history(
+        user_id,
+        query,
+        answer,
+    )
+
+    return {
+        "answer": answer,
+        "keywords": [query, result.ticker_code] if result.ticker_code else [query],
+        "sources": sources,
+    }
 
 
 def _answer_from_indicators(query: str, user_id: str = "default") -> dict | None:

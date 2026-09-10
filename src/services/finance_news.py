@@ -9,11 +9,35 @@ import logging
 import os
 import re
 import urllib.request
+from logging.handlers import TimedRotatingFileHandler
 from src.services.http_retry import retry_urlopen
 import urllib.parse
 from datetime import datetime, date
 
 logger = logging.getLogger(__name__)
+
+# ── AI 盤後分析專用 logger（每日輪替，寫入 logs/ai_analysis.log）──────────────
+_AI_LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "logs")
+os.makedirs(_AI_LOG_DIR, exist_ok=True)
+_AI_LOG_FILE = os.path.join(_AI_LOG_DIR, "ai_analysis.log")
+
+_ai_logger = logging.getLogger("ai_analysis")
+_ai_logger.setLevel(logging.INFO)
+_ai_logger.propagate = False
+if not _ai_logger.handlers:
+    _handler = TimedRotatingFileHandler(
+        _AI_LOG_FILE,
+        when="midnight",
+        interval=1,
+        backupCount=30,
+        encoding="utf-8",
+    )
+    _handler.suffix = "%Y-%m-%d"
+    _handler.setFormatter(logging.Formatter(
+        "%(asctime)s | %(levelname)-5s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    _ai_logger.addHandler(_handler)
 
 # --- Anue (鉅亨網) API ---
 ANUE_API_BASE = "https://api.cnyes.com/media/api/v1/newslist/category"
@@ -659,12 +683,22 @@ def run_daily_ai_analysis() -> dict:
 
     today_str = date.today().isoformat()
     today_display = date.today().strftime('%Y/%m/%d')
+    trigger_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     # 讀取今天累積的新聞
     note_id, existing_titles = _get_today_news_note()
     if not existing_titles:
-        logger.warning("No news collected today, skipping AI analysis")
+        _ai_logger.warning(
+            f"[{trigger_time}] SKIP — 今日無新聞，跳过 AI 分析 | "
+            f"news_count=0 | telegram_sent=False | ai_saved=False"
+        )
         return result
+
+    news_count = len(existing_titles)
+    _ai_logger.info(
+        f"[{trigger_time}] START | news_count={news_count} | "
+        f"note_id={note_id} | date={today_str}"
+    )
 
     # 組成 news_items 格式給 AI 分析
     news_items = [{"title": t, "source": "", "url": "", "category": ""} for t in existing_titles]
@@ -681,7 +715,10 @@ def run_daily_ai_analysis() -> dict:
         chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
 
     # AI 分析
+    ai_start = datetime.now()
     analysis = analyze_finance_news_ai(news_items)
+    ai_elapsed = (datetime.now() - ai_start).total_seconds()
+
     if analysis:
         # 去重：檢查當天是否已存在同標題的 AI 盤後分析
         ai_title = f"🤖 AI 盤後分析 — {today_display}"
@@ -692,7 +729,11 @@ def run_daily_ai_analysis() -> dict:
             for n in existing_notes
         )
         if already_exists:
-            logger.info("Daily AI analysis already exists for today, skipping save")
+            _ai_logger.info(
+                f"[{trigger_time}] SKIP — 今日分析已存在（去重）| "
+                f"news_count={news_count} | ai_elapsed={ai_elapsed:.1f}s | "
+                f"telegram_sent=False | ai_saved=True"
+            )
             result["ai_saved"] = True
             return result
 
@@ -704,14 +745,34 @@ def run_daily_ai_analysis() -> dict:
             title=ai_title,
         )
         result["ai_saved"] = True
-        logger.info("Daily AI analysis saved")
+        _ai_logger.info(
+            f"[{trigger_time}] AI OK | news_count={news_count} | "
+            f"ai_elapsed={ai_elapsed:.1f}s | ai_saved=True"
+        )
 
         # Telegram 發送 AI 分析
         ai_msg = f"🤖 <b>AI 盤後分析</b> — {today_display}\n\n{analysis}"
-        if send_telegram_message(bot_token, chat_id, ai_msg):
+        tg_start = datetime.now()
+        tg_ok = send_telegram_message(bot_token, chat_id, ai_msg)
+        tg_elapsed = (datetime.now() - tg_start).total_seconds()
+        if tg_ok:
             result["telegram_sent"] = True
+            _ai_logger.info(
+                f"[{trigger_time}] DONE | news_count={news_count} | "
+                f"ai_elapsed={ai_elapsed:.1f}s | tg_elapsed={tg_elapsed:.1f}s | "
+                f"telegram_sent=True | ai_saved=True"
+            )
+        else:
+            _ai_logger.warning(
+                f"[{trigger_time}] TG FAIL | news_count={news_count} | "
+                f"ai_elapsed={ai_elapsed:.1f}s | tg_elapsed={tg_elapsed:.1f}s | "
+                f"telegram_sent=False | ai_saved=True"
+            )
     else:
-        logger.warning("AI analysis returned empty")
+        _ai_logger.error(
+            f"[{trigger_time}] AI FAIL | news_count={news_count} | "
+            f"ai_elapsed={ai_elapsed:.1f}s | telegram_sent=False | ai_saved=False"
+        )
 
     return result
 

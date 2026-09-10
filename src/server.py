@@ -23,6 +23,7 @@ from src.core.database import (
 )
 from src.core.pg_client import (
     get_all_stocks, get_daily_kline, get_weekly_kline, get_monthly_kline,
+    get_news_heat,
 )
 from src.services.yahoo_service import fetch_hot_stocks, fetch_revenue, fetch_dividend, fetch_rank
 from src.services.kline_analysis import analyze_kline, get_analysis_history
