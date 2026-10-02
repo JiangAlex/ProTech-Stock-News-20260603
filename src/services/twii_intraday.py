@@ -629,7 +629,7 @@ def predict_next_bar() -> Optional[dict]:
 
     # Call MiniMax AI
     data = json.dumps({
-        "model": "MiniMax-M2.7",
+        "model": os.getenv("OPENROUTER_MODEL", "minimax/minimax-m2.7"),
         "messages": [
             {"role": "system", "content": "你是台股大盤 60 分線短線分析專家，只輸出 JSON 格式。"},
             {"role": "user", "content": prompt},
@@ -1148,7 +1148,7 @@ def run_daily_integration() -> Optional[dict]:
 
     # 5. Call AI
     data = json.dumps({
-        "model": "MiniMax-M2.7",
+        "model": os.getenv("OPENROUTER_MODEL", "minimax/minimax-m2.7"),
         "messages": [
             {"role": "system", "content": "你是資深台股大盤分析師，負責整合盤中 60 分線、日線、週線做出綜合判斷。繁體中文回答。"},
             {"role": "user", "content": prompt},

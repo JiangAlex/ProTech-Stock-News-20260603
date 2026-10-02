@@ -131,6 +131,15 @@ def _build_weekly_prompt(stock_code: str, stock_name: str,
     except Exception:
         pass
 
+    # Inject news correlation feedback (方向 2-5: bridge Direction 2 → Direction 1)
+    try:
+        from src.services.kline_analysis import _build_news_correlation_feedback
+        news_corr = _build_news_correlation_feedback(stock_code, days=7)
+        if news_corr:
+            prompt += news_corr
+    except Exception:
+        pass
+
     return prompt
 
 
@@ -167,7 +176,7 @@ def analyze_single_stock(stock_code: str, stock_name: str) -> str | None:
 
     # 6. Call AI
     data = json.dumps({
-        "model": "MiniMax-M2.7",
+        "model": os.getenv("OPENROUTER_MODEL", "minimax/minimax-m2.7"),
         "messages": [
             {"role": "system", "content": "你是資深台股技術分析師，負責每週自選股覆盤。根據技術指標與過去分析紀錄，提供精簡的趨勢追蹤報告。繁體中文回答。"},
             {"role": "user", "content": prompt},

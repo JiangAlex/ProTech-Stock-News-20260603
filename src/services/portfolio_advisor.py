@@ -327,7 +327,7 @@ def analyze_portfolio(user_id: str = "default") -> dict:
 
     # Step 5: 呼叫 LLM
     data = json.dumps({
-        "model": "MiniMax-M2.7",
+        "model": os.getenv("OPENROUTER_MODEL", "minimax/minimax-m2.7"),
         "messages": messages,
         "max_tokens": 3000,
         "temperature": 0.3,

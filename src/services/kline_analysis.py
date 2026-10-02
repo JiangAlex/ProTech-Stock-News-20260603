@@ -451,6 +451,49 @@ _analysis_history: dict[str, list] = {}
 MAX_ANALYSIS_HISTORY = 5
 
 
+def _build_news_correlation_feedback(stock_code: str, days: int = 7) -> str:
+    """Build news correlation section for AI prompt (方向 2-5 / Redmine #44).
+
+    Pulls from news_correlation_daily to show the AI recent news heat
+    for this ticker, bridging Direction 2 (news intelligence) with
+    Direction 1 (AI prediction/feedback loop).
+    """
+    try:
+        from src.core.database import get_news_correlation_for_ticker
+        data = get_news_correlation_for_ticker(stock_code, days=days)
+        records = data.get("records", [])
+        if not records:
+            return ""
+
+        lines = ["\n\n【新聞熱度（前瞻資訊）】"]
+        lines.append(f"近 {days} 天共 {data['total_mentions']} 次新聞提及（約 {data['avg_news_per_day']} 次/天）\n")
+
+        for r in records[:5]:
+            date_str = str(r["correlation_date"])[:10]
+            total = r["total_news"]
+            top = r.get("top_score")
+            avg = r.get("avg_score")
+            score_str = f"均分{avg}" if avg else ""
+            if top:
+                score_str += f" 最高分{top}" if score_str else f"最高分{top}"
+            headlines = r.get("headline_titles") or []
+            top_headline = (headlines[0].get("title", "")[:30] if headlines else "")
+
+            lines.append(
+                f"- {date_str}：{total} 篇新聞 {score_str}"
+                + (f" 「{top_headline}...」" if top_headline else "")
+            )
+
+        lines.append(
+            "\n提示：上述為近日新聞標註統計（來源：news_correlation_daily，"
+            "由 daily_news_correlation cron 每日更新）。"
+            "請結合新聞熱度與技術面綜合判斷。"
+        )
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 def _build_prediction_feedback(stock_code: str, user_id: str) -> str:
     """Build prediction history feedback section for AI prompt."""
     try:
@@ -619,6 +662,11 @@ def _build_analysis_prompt(stock_code: str, stock_name: str, period: str,
     if prediction_feedback:
         prompt += prediction_feedback
 
+    # Inject news correlation feedback (方向 2-5: bridge Direction 2 → Direction 1)
+    news_corr_feedback = _build_news_correlation_feedback(stock_code, days=7)
+    if news_corr_feedback:
+        prompt += news_corr_feedback
+
     return prompt
 
 
@@ -722,7 +770,7 @@ def analyze_kline(stock_code: str, stock_name: str, kline_data: list[dict],
     messages.append({"role": "user", "content": prompt})
 
     data = json.dumps({
-        "model": "MiniMax-M2.7",
+        "model": os.getenv("OPENROUTER_MODEL", "minimax/minimax-m2.7"),
         "messages": messages,
         "max_tokens": 2500,
         "temperature": 0.3,

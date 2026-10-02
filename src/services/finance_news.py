@@ -552,7 +552,7 @@ def analyze_finance_news_ai(news_items: list[dict]) -> str | None:
         pass
 
     data = json.dumps({
-        "model": "MiniMax-M2.7",
+        "model": os.getenv("OPENROUTER_MODEL", "minimax/minimax-m2.7"),
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 3000,
         "temperature": 0.3,
