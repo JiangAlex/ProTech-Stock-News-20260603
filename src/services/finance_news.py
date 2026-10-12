@@ -44,7 +44,7 @@ ANUE_API_BASE = "https://api.cnyes.com/media/api/v1/newslist/category"
 ANUE_NEWS_URL = "https://news.cnyes.com/news/id"
 
 # --- MiniMax AI ---
-MINIMAX_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
+MINIMAX_API_URL = os.getenv("MINIMAX_API_URL", "https://api.minimax.io/anthropic")
 
 
 def _fetch_url(url: str, timeout: int = 15) -> str | None:
@@ -552,21 +552,21 @@ def analyze_finance_news_ai(news_items: list[dict]) -> str | None:
         pass
 
     data = json.dumps({
-        "model": os.getenv("OPENROUTER_MODEL", "minimax/minimax-m2.7"),
+        "model": os.getenv("MINIMAX_MODEL", "MiniMax-M2.7"),
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 3000,
         "temperature": 0.3,
     }).encode()
 
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "X-Api-Key": api_key,
         "Content-Type": "application/json",
     }
 
     try:
         req = urllib.request.Request(MINIMAX_API_URL, data=data, method="POST", headers=headers)
         result = json.loads(retry_urlopen(req, timeout=60, max_retries=2))
-        content = result["choices"][0]["message"]["content"].strip()
+        content = result["content"][0]["text"].strip()
         # Remove <think>...</think> blocks if present
         content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
         return content if content else None
