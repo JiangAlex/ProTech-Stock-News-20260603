@@ -622,12 +622,18 @@ async def _daily_finance_news_job():
             count = run_hourly_news_collect()
             _logger.info(f"Hourly news collect: {count} new items added")
 
-            # At 17:00: run AI analysis + Telegram
+            # At 8:30 (pre-market) and 17:00 (after-hours): run AI analysis + Telegram
             current = datetime.now()
-            if current.hour == 17:
+            if current.hour == 8 and current.minute >= 30:
                 result = run_daily_ai_analysis()
                 _logger.info(
-                    f"Daily AI analysis done: telegram={'✓' if result['telegram_sent'] else '✗'}, "
+                    f"Pre-market AI analysis done: telegram={'✓' if result['telegram_sent'] else '✗'}, "
+                    f"ai={'✓' if result['ai_saved'] else '✗'}"
+                )
+            elif current.hour == 17:
+                result = run_daily_ai_analysis()
+                _logger.info(
+                    f"After-hours AI analysis done: telegram={'✓' if result['telegram_sent'] else '✗'}, "
                     f"ai={'✓' if result['ai_saved'] else '✗'}"
                 )
         except Exception as e:
@@ -1051,6 +1057,25 @@ def api_kline(code: str, period: str = Query("daily"), days: int = Query(120, le
     return get_daily_kline(code, days)
 
 
+@app.get("/api/stock/{code}/news-heat")
+def api_news_heat(code: str, days: int = Query(7, ge=1, le=365)):
+    """News heat query: return mention intensity curve for a ticker over the past N days.
+
+    GET /api/stock/2330/news-heat?days=7
+
+    Returns the same shape as get_news_heat() in pg_client:
+      {
+        "stock_code": "2330",
+        "days": 7,
+        "total_mentions": 12,
+        "by_day": [{"date": "2026-09-04", "count": 3}, ...],
+        "by_source": [{"source": "moneydj_rss", "count": 5}, ...],
+        "by_mention_type": [{"mention_type": "TITLE", "count": 4}, ...],
+      }
+    """
+    return get_news_heat(code, days)
+
+
 @app.post("/api/stock/{code}/ai-analysis")
 def api_ai_analysis(code: str, period: str = Query("daily"), days: int = Query(120, le=500),
                     user: str = Query("default")):
@@ -1174,6 +1199,106 @@ def api_portfolio_analysis(body: dict):
     from src.services.portfolio_advisor import analyze_portfolio
     result = analyze_portfolio(user_id=user)
     return result
+
+
+@app.get("/api/dashboard/metrics")
+def api_dashboard_metrics():
+    """Unauthenticated dashboard overview: stock count, active alerts, AI prediction accuracy, recent market activity."""
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    from src.core.pg_client import DB_CONFIG
+    from src.core.database import get_ai_prediction_stats, get_news_digests
+
+    conn = psycopg2.connect(**DB_CONFIG)
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Total stocks
+        cur.execute("SELECT COUNT(*) as cnt FROM stock_basic")
+        total_stocks = cur.fetchone()["cnt"]
+
+        # Stocks with daily_indicators (active/has data recently)
+        cur.execute("SELECT COUNT(DISTINCT stock_code) as cnt FROM daily_indicators WHERE date = (SELECT MAX(date) FROM daily_indicators)")
+        active_stocks = cur.fetchone()["cnt"]
+
+        # Enabled alerts count
+        cur.execute("SELECT COUNT(*) as cnt FROM stock_alerts WHERE enabled = true")
+        active_alerts = cur.fetchone()["cnt"]
+
+        # News digests count
+        cur.execute("SELECT COUNT(*) as cnt FROM news_digest")
+        news_digests = cur.fetchone()["cnt"]
+
+        # Latest daily_indicators date
+        cur.execute("SELECT MAX(date) as latest FROM daily_indicators")
+        row = cur.fetchone()
+        latest_indicators_date = row["latest"].isoformat() if row and row["latest"] else None
+
+        # Top gainers/losers from latest date
+        cur.execute("""
+            SELECT stock_code, close, change_pct
+            FROM daily_indicators
+            WHERE date = (SELECT MAX(date) FROM daily_indicators)
+            ORDER BY change_pct DESC
+            LIMIT 5
+        """)
+        top_gainers = [dict(r) for r in cur.fetchall()]
+
+        cur.execute("""
+            SELECT stock_code, close, change_pct
+            FROM daily_indicators
+            WHERE date = (SELECT MAX(date) FROM daily_indicators)
+            ORDER BY change_pct ASC
+            LIMIT 5
+        """)
+        top_losers = [dict(r) for r in cur.fetchall()]
+
+        # Market breadth (% stocks up vs down today)
+        cur.execute("""
+            SELECT
+                COUNT(*) FILTER (WHERE change_pct > 0) as up_count,
+                COUNT(*) FILTER (WHERE change_pct < 0) as down_count,
+                COUNT(*) FILTER (WHERE change_pct = 0) as flat_count
+            FROM daily_indicators
+            WHERE date = (SELECT MAX(date) FROM daily_indicators)
+        """)
+        breadth = dict(cur.fetchall())
+
+    finally:
+        conn.close()
+
+    # AI prediction stats (aggregated across all users)
+    ai_stats = get_ai_prediction_stats(user_id=None)
+
+    # News digests summary
+    digests = get_news_digests()
+    recent_digests = [
+        {"id": d["id"], "week_start": d["week_start"], "week_end": d["week_end"]}
+        for d in digests[:4]
+    ]
+
+    return {
+        "total_stocks": total_stocks,
+        "active_stocks": active_stocks,
+        "active_alerts": active_alerts,
+        "news_digests": news_digests,
+        "latest_indicators_date": latest_indicators_date,
+        "market_breadth": {
+            "up": breadth.get("up_count", 0),
+            "down": breadth.get("down_count", 0),
+            "flat": breadth.get("flat_count", 0),
+        },
+        "top_gainers": top_gainers,
+        "top_losers": top_losers,
+        "ai_prediction_stats": {
+            "total_predictions": ai_stats.get("total", 0),
+            "accuracy_5d": ai_stats.get("accuracy_5d", 0),
+            "accuracy_20d": ai_stats.get("accuracy_20d", 0),
+            "verified_5d": ai_stats.get("verified_5d", 0),
+            "verified_20d": ai_stats.get("verified_20d", 0),
+        },
+        "recent_digests": recent_digests,
+    }
 
 
 @app.get("/api/market-scan")
