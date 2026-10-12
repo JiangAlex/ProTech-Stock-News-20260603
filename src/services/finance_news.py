@@ -567,7 +567,9 @@ def analyze_finance_news_ai(news_items: list[dict]) -> str | None:
         req = urllib.request.Request(MINIMAX_API_URL.rstrip("/") + "/v1/messages", data=data, method="POST", headers=headers)
         result = json.loads(retry_urlopen(req, timeout=60, max_retries=2))
         logger.debug(f"MiniMax raw response: {result}")
-        content = result["content"][0]["text"].strip()
+        # Find the text block in content array
+        text_block = next((block["text"] for block in result["content"] if block.get("type") == "text"), None)
+        content = text_block.strip() if text_block else None
         # Remove <think>...</think> blocks if present
         content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
         return content if content else None
