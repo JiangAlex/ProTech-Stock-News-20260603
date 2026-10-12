@@ -564,7 +564,7 @@ def analyze_finance_news_ai(news_items: list[dict]) -> str | None:
     }
 
     try:
-        req = urllib.request.Request(MINIMAX_API_URL, data=data, method="POST", headers=headers)
+        req = urllib.request.Request(MINIMAX_API_URL.rstrip("/") + "/v1/messages", data=data, method="POST", headers=headers)
         result = json.loads(retry_urlopen(req, timeout=60, max_retries=2))
         content = result["content"][0]["text"].strip()
         # Remove <think>...</think> blocks if present
